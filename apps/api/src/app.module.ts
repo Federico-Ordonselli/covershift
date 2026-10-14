@@ -7,9 +7,10 @@ import { ProblemDetailsFilter } from './common/problem-details.filter';
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
+import { ShiftsModule } from './shifts/shifts.module';
 
 @Module({
-  imports: [ConfigModule, AuthModule, DatabaseModule, CertificationsModule],
+  imports: [ConfigModule, AuthModule, DatabaseModule, CertificationsModule, ShiftsModule],
   controllers: [HealthController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
