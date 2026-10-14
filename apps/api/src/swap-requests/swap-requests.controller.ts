@@ -14,6 +14,8 @@ import { SwapRequestsService } from './swap-requests.service';
 /**
  * Transitions are POST actions rather than PATCH status: each has its own actor and rules
  * (the transition table in ADR 001), and the URL says which one is being attempted.
+ * Every action answers the same way: hidden = 404, visible but not yours = 403,
+ * wrong state = 409.
  */
 @ApiTags('swap-requests')
 @ApiBearerAuth()
@@ -52,31 +54,31 @@ export class SwapRequestsController {
   @Post(':id/decline')
   @HttpCode(200)
   @ZodResponse({ type: SwapRequestDto })
-  async decline(@Param('id', ParseUUIDPipe) id: string) {
-    return toSwapRequestDto(await this.swaps.decline(id));
+  async decline(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return toSwapRequestDto(await this.swaps.decline(user.id, id));
   }
 
   /** Requester withdraws (pending or accepted). */
   @Post(':id/cancel')
   @HttpCode(200)
   @ZodResponse({ type: SwapRequestDto })
-  async cancel(@Param('id', ParseUUIDPipe) id: string) {
-    return toSwapRequestDto(await this.swaps.cancel(id));
+  async cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return toSwapRequestDto(await this.swaps.cancel(user.id, id));
   }
 
   /** Manager/admin, not a participant: reassigns the shift atomically. */
   @Post(':id/approve')
   @HttpCode(200)
   @ZodResponse({ type: SwapRequestDto })
-  async approve(@Param('id', ParseUUIDPipe) id: string) {
-    return toSwapRequestDto(await this.swaps.approve(id));
+  async approve(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return toSwapRequestDto(await this.swaps.approve(user.id, id));
   }
 
   /** Manager/admin, not a participant. */
   @Post(':id/reject')
   @HttpCode(200)
   @ZodResponse({ type: SwapRequestDto })
-  async reject(@Param('id', ParseUUIDPipe) id: string) {
-    return toSwapRequestDto(await this.swaps.reject(id));
+  async reject(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return toSwapRequestDto(await this.swaps.reject(user.id, id));
   }
 }

@@ -247,6 +247,82 @@ describe('e2e: crafted requests', () => {
     });
   });
 
+  describe('transitions: hidden = 404, visible but not yours = 403, wrong state = 409', () => {
+    let direct: string; // staff -> coworker
+    let open: string; // staff -> anyone
+
+    const act = async (who: string, action: string, id: string) =>
+      http()
+        .post(`/swap-requests/${id}/${action}`)
+        .set('authorization', await bearer(a, who));
+
+    async function status(id: string): Promise<string> {
+      const { rows } = await admin.query<{ status: string }>(
+        `select status from app.swap_requests where id = $1`,
+        [id],
+      );
+      return rows[0]!.status;
+    }
+
+    async function offerShift(day: string, target: string | null): Promise<string> {
+      const shiftId = await insertShift(admin, a, {
+        startsAt: `2030-11-${day}T06:00:00Z`,
+        endsAt: `2030-11-${day}T14:00:00Z`,
+        assignedUserId: a.users.staff!.id,
+      });
+      const res = await http()
+        .post('/swap-requests')
+        .set('authorization', await bearer(a, 'staff'))
+        .send({ shiftId, targetUserId: target });
+      expect(res.status, res.text).toBe(201);
+      return res.body.id as string;
+    }
+
+    beforeAll(async () => {
+      direct = await offerShift('01', a.users.coworker!.id);
+      open = await offerShift('02', null);
+    });
+
+    it.each([
+      ['accept', 'coworker2', 'direct', 'not the target of a direct offer'],
+      ['accept', 'staff', 'open', 'claiming your own offer'],
+      ['decline', 'coworker2', 'direct', 'not the target'],
+      ['decline', 'coworker', 'open', 'open offers have no target to decline'],
+      ['cancel', 'coworker', 'direct', 'not the requester'],
+      ['approve', 'coworker2', 'direct', 'staff'],
+      ['reject', 'coworker2', 'direct', 'staff'],
+    ])('%s by %s on the %s offer is 403 (%s) and changes nothing', async (action, who, which) => {
+      const id = which === 'direct' ? direct : open;
+      const before = await status(id);
+      const res = await act(who, action, id);
+      expect(res.status, res.text).toBe(403);
+      expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
+      expect(await status(id)).toBe(before);
+    });
+
+    it('a manager who is a participant may not decide: approve and reject are 403', async () => {
+      const claimed = await act('manager', 'accept', open);
+      expect(claimed.status, claimed.text).toBe(200);
+      for (const action of ['approve', 'reject']) {
+        const res = await act('manager', action, open);
+        expect(res.status, action).toBe(403);
+        expect(res.body.code).toBe('SWAP_NOT_ALLOWED');
+      }
+      expect(await status(open)).toBe('accepted');
+    });
+
+    it('the right actor in the wrong state gets 409, for every transition', async () => {
+      // direct is pending: approving it is a state error, not a permission error
+      expect((await act('manager', 'approve', direct)).status).toBe(409);
+      expect((await act('coworker', 'accept', direct)).status).toBe(200);
+      expect((await act('coworker', 'accept', direct)).status).toBe(409); // already accepted
+      expect((await act('coworker', 'decline', direct)).status).toBe(409); // only from pending
+      expect((await act('manager', 'approve', direct)).status).toBe(200);
+      expect((await act('staff', 'cancel', direct)).status).toBe(409); // already approved
+      expect((await act('manager', 'reject', direct)).status).toBe(409); // already approved
+    });
+  });
+
   describe('fields clients never control', () => {
     it('requester and organization come from the token and the shift, not the body', async () => {
       const res = await http()
