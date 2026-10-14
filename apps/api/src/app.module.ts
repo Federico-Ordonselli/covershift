@@ -8,9 +8,17 @@ import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
 import { ShiftsModule } from './shifts/shifts.module';
+import { SwapRequestsModule } from './swap-requests/swap-requests.module';
 
 @Module({
-  imports: [ConfigModule, AuthModule, DatabaseModule, CertificationsModule, ShiftsModule],
+  imports: [
+    ConfigModule,
+    AuthModule,
+    DatabaseModule,
+    CertificationsModule,
+    ShiftsModule,
+    SwapRequestsModule,
+  ],
   controllers: [HealthController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
