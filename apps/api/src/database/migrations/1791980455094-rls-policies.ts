@@ -47,26 +47,62 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
     await q.query(`grant update (full_name, updated_at) on app.profiles to authenticated`);
 
     // ---------------------------------------------------------------- helpers
-    // SECURITY DEFINER so policies on memberships can consult memberships without
-    // recursing into their own policy. STABLE: same answer within a statement.
-    // Empty search_path + qualified names: immune to search_path hijacking.
+    // Set-returning, so policies can use `organization_id in (select app.member_org_ids())`:
+    // an uncorrelated subquery, evaluated once per statement (hashed), instead of a function
+    // call per row. auth.uid() is wrapped in (select ...) for the same reason (Supabase's
+    // auth_rls_initplan guidance); a test asserts no policy uses the unwrapped form.
+    //
+    // SECURITY DEFINER so policies on memberships can read memberships without recursing
+    // into their own policy. Empty search_path + qualified names: immune to search_path
+    // hijacking. Only *active* memberships count.
     await q.query(`
-      create function app.is_member(org_id uuid)
-      returns boolean
+      create function app.member_org_ids()
+      returns setof uuid
       language sql
       stable
       security definer
       set search_path = ''
       as $$
-        select exists (
-          select 1
-          from app.memberships m
-          where m.organization_id = org_id
-            and m.user_id = (select auth.uid())
-            and m.deactivated_at is null
-        )
+        select m.organization_id
+        from app.memberships m
+        where m.user_id = (select auth.uid())
+          and m.deactivated_at is null
       $$`);
 
+    // Orgs where the caller can manage the schedule. Admin is a superset of manager.
+    await q.query(`
+      create function app.scheduler_org_ids()
+      returns setof uuid
+      language sql
+      stable
+      security definer
+      set search_path = ''
+      as $$
+        select m.organization_id
+        from app.memberships m
+        where m.user_id = (select auth.uid())
+          and m.deactivated_at is null
+          and m.role in ('admin', 'manager')
+      $$`);
+
+    // Users sharing an org with the caller (active caller; the coworker may be deactivated,
+    // so names in shift/swap history stay readable).
+    await q.query(`
+      create function app.coworker_ids()
+      returns setof uuid
+      language sql
+      stable
+      security definer
+      set search_path = ''
+      as $$
+        select distinct them.user_id
+        from app.memberships me
+        join app.memberships them on them.organization_id = me.organization_id
+        where me.user_id = (select auth.uid())
+          and me.deactivated_at is null
+      $$`);
+
+    // Point check for the transition triggers (one org, one row at a time).
     await q.query(`
       create function app.has_role(org_id uuid, roles app.membership_role[])
       returns boolean
@@ -85,30 +121,11 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
         )
       $$`);
 
-    // Coworker visibility for profiles: the caller (active) and other_user share an org.
-    // other_user may be deactivated, so names in shift/swap history stay readable.
-    await q.query(`
-      create function app.shares_org(other_user uuid)
-      returns boolean
-      language sql
-      stable
-      security definer
-      set search_path = ''
-      as $$
-        select exists (
-          select 1
-          from app.memberships me
-          join app.memberships them on them.organization_id = me.organization_id
-          where me.user_id = (select auth.uid())
-            and me.deactivated_at is null
-            and them.user_id = other_user
-        )
-      $$`);
-
     for (const fn of [
-      'app.is_member(uuid)',
+      'app.member_org_ids()',
+      'app.scheduler_org_ids()',
+      'app.coworker_ids()',
       'app.has_role(uuid, app.membership_role[])',
-      'app.shares_org(uuid)',
     ]) {
       await q.query(`revoke execute on function ${fn} from public, anon`);
       await q.query(`grant execute on function ${fn} to authenticated`);
@@ -118,17 +135,17 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
     await q.query(`
       create policy organizations_select_member on app.organizations
         for select to authenticated
-        using (app.is_member(id))`);
+        using (id in (select app.member_org_ids()))`);
 
     await q.query(`
       create policy memberships_select_same_org on app.memberships
         for select to authenticated
-        using (app.is_member(organization_id))`);
+        using (organization_id in (select app.member_org_ids()))`);
 
     await q.query(`
       create policy profiles_select_self_or_coworker on app.profiles
         for select to authenticated
-        using (id = (select auth.uid()) or app.shares_org(id))`);
+        using (id = (select auth.uid()) or id in (select app.coworker_ids()))`);
     await q.query(`
       create policy profiles_update_self on app.profiles
         for update to authenticated
@@ -143,7 +160,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
       await q.query(`
         create policy ${table}_select_member on app.${table}
           for select to authenticated
-          using (app.is_member(organization_id))`);
+          using (organization_id in (select app.member_org_ids()))`);
     }
 
     // Certifications are personal data: visible to the holder and to the org's schedulers.
@@ -151,35 +168,35 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
       create policy user_certifications_select_self_or_scheduler on app.user_certifications
         for select to authenticated
         using (
-          (user_id = (select auth.uid()) and app.is_member(organization_id))
-          or app.has_role(organization_id, '{admin,manager}')
+          (user_id = (select auth.uid()) and organization_id in (select app.member_org_ids()))
+          or organization_id in (select app.scheduler_org_ids())
         )`);
 
     // ---------------------------------------------------------------- shifts
     await q.query(`
       create policy shifts_select_member on app.shifts
         for select to authenticated
-        using (app.is_member(organization_id))`);
+        using (organization_id in (select app.member_org_ids()))`);
     await q.query(`
       create policy shifts_insert_scheduler on app.shifts
         for insert to authenticated
-        with check (app.has_role(organization_id, '{admin,manager}'))`);
+        with check (organization_id in (select app.scheduler_org_ids()))`);
     // with check also prevents moving a shift into an org where the caller isn't a scheduler.
     await q.query(`
       create policy shifts_update_scheduler on app.shifts
         for update to authenticated
-        using (app.has_role(organization_id, '{admin,manager}'))
-        with check (app.has_role(organization_id, '{admin,manager}'))`);
+        using (organization_id in (select app.scheduler_org_ids()))
+        with check (organization_id in (select app.scheduler_org_ids()))`);
     await q.query(`
       create policy shifts_delete_scheduler on app.shifts
         for delete to authenticated
-        using (app.has_role(organization_id, '{admin,manager}'))`);
+        using (organization_id in (select app.scheduler_org_ids()))`);
 
     // ---------------------------------------------------------------- swap_requests: policies
     await q.query(`
       create policy swap_requests_select_member on app.swap_requests
         for select to authenticated
-        using (app.is_member(organization_id))`);
+        using (organization_id in (select app.member_org_ids()))`);
 
     // Anyone (staff or not) may offer only a shift currently assigned to themselves.
     // The subquery runs under the caller's RLS, which is fine: it only needs own-org shifts.
@@ -188,7 +205,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
         for insert to authenticated
         with check (
           requester_id = (select auth.uid())
-          and app.is_member(organization_id)
+          and organization_id in (select app.member_org_ids())
           and exists (
             select 1
             from app.shifts s
@@ -207,15 +224,15 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
       create policy swap_requests_update_participant_or_scheduler on app.swap_requests
         for update to authenticated
         using (
-          app.is_member(organization_id)
+          organization_id in (select app.member_org_ids())
           and (
             requester_id = (select auth.uid())
             or target_user_id = (select auth.uid())
             or target_user_id is null
-            or app.has_role(organization_id, '{admin,manager}')
+            or organization_id in (select app.scheduler_org_ids())
           )
         )
-        with check (app.is_member(organization_id))`);
+        with check (organization_id in (select app.member_org_ids()))`);
 
     // ---------------------------------------------------------------- swap_requests: state machine
     // Errors use a dedicated SQLSTATE, CS409, with message '<ERROR_CODE>: <reason>'. The API
@@ -279,9 +296,6 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'the target is not an active member');
         end if;
 
-        -- Audit timestamps are the database's, whatever the caller sent.
-        new.created_at := now();
-        new.updated_at := now();
         return new;
       end;
       $$`);
@@ -296,7 +310,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
     //   accepted           approved   scheduler who is neither requester nor target
     //   pending|accepted   rejected   scheduler who is neither requester nor target
     //
-    // decided_by_id / decided_at / updated_at are set here, never by the caller.
+    // decided_by_id / decided_at are set here, never by the caller (timestamps: stamp_timestamps).
     await q.query(`
       create function app.guard_swap_request_update()
       returns trigger
@@ -315,7 +329,8 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
         end if;
 
         -- Columns that never change after creation (grants already stop authenticated;
-        -- this holds the line for any other non-maintenance role).
+        -- this holds the line for any other non-maintenance role). created_at is pinned by
+        -- app.stamp_timestamps, which fires first.
         if (new.id, new.organization_id, new.shift_id, new.requester_id, new.note, new.created_at)
            is distinct from
            (old.id, old.organization_id, old.shift_id, old.requester_id, old.note, old.created_at) then
@@ -331,8 +346,6 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           if new.target_user_id is distinct from old.target_user_id then
             perform app.raise_swap_error('SWAP_INVALID_TRANSITION', 'target changes only when claiming');
           end if;
-          -- Nothing changed, so nothing to stamp: a caller-supplied updated_at is discarded.
-          new.updated_at := old.updated_at;
           return new;
         end if;
 
@@ -406,7 +419,6 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           end if;
         end if;
 
-        new.updated_at := now();
         return new;
       end;
       $$`);
@@ -492,9 +504,10 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
       await q.query(`drop policy ${policy} on app.${table}`);
     }
 
-    await q.query(`drop function app.shares_org(uuid)`);
     await q.query(`drop function app.has_role(uuid, app.membership_role[])`);
-    await q.query(`drop function app.is_member(uuid)`);
+    await q.query(`drop function app.coworker_ids()`);
+    await q.query(`drop function app.scheduler_org_ids()`);
+    await q.query(`drop function app.member_org_ids()`);
 
     await q.query(`revoke all on all tables in schema app from authenticated`);
     await q.query(`revoke usage on schema app from authenticated`);

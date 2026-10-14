@@ -97,13 +97,23 @@ Option C with C2 wiring on top of a C3 primitive.
 
 ## Policy model
 
-Helpers (in `app`, `SECURITY DEFINER`, `STABLE`, `set search_path = ''`):
+Helpers (in `app`, `SECURITY DEFINER`, `STABLE`, `set search_path = ''`). Only
+**active** memberships count:
 
-- `app.is_member(org_id)`: the caller has an **active** membership in the org.
-- `app.has_role(org_id, roles[])`: the caller has an active membership with one of the roles.
-- `app.shares_org(user_id)`: the caller (active) shares an org with that user.
+- `app.member_org_ids()`: orgs the caller belongs to.
+- `app.scheduler_org_ids()`: orgs where the caller is manager or admin.
+- `app.coworker_ids()`: users sharing an org with the caller.
+- `app.has_role(org_id, roles[])`: point check, used by the transition triggers.
 
-These have to be `SECURITY DEFINER`. A policy on `memberships` that queries
+Policies use the set-returning helpers as uncorrelated subqueries:
+`organization_id in (select app.member_org_ids())`. Postgres evaluates that once per
+statement as a hashed subplan, instead of calling a function per row. Every `auth.uid()`
+is likewise wrapped as `(select auth.uid())` (Supabase's `auth_rls_initplan` guidance). A
+catalog test fails the build if any policy contains an unwrapped `auth.*`/`app.*` call. It
+also fails if a table in `app` lacks RLS, or if a `SECURITY DEFINER` function doesn't pin
+`search_path`.
+
+The helpers have to be `SECURITY DEFINER`. A policy on `memberships` that queries
 `memberships` would otherwise recurse into its own policy.
 
 | Table                                                       | Read                                | Write                                                                                   |
@@ -163,6 +173,9 @@ sees. So:
   `SWAP_CONFLICT`.
 - **`BEFORE INSERT` trigger** requires new requests to be `pending`, undecided, created by
   their requester, and for a shift that hasn't started.
+- **Timestamps are database-owned on every table.** `app.stamp_timestamps()` (fires first
+  among `BEFORE` triggers) sets `created_at` on insert and pins it afterwards, and sets
+  `updated_at` on every write, for every role. Whatever the caller sends is overwritten.
 - **CHECK `swap_requests_decider_not_participant_check`** is a backstop that holds even for
   maintenance roles: the decider is never the requester or the target.
 

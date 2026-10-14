@@ -217,6 +217,49 @@ export class InitSchema1791980455093 implements MigrationInterface {
       await q.query(`alter table app.${table} enable row level security`);
     }
 
+    // Audit timestamps belong to the database, for every table and every role: created_at is
+    // set once on insert and can never change; updated_at is set on every write. Whatever a
+    // caller (or TypeORM's @UpdateDateColumn) sends is overwritten.
+    // TG_ARGV[0]: 'true' if the table also has updated_at.
+    await q.query(`
+      create function app.stamp_timestamps()
+      returns trigger
+      language plpgsql
+      set search_path = ''
+      as $$
+      begin
+        if tg_op = 'INSERT' then
+          new.created_at := now();
+        else
+          new.created_at := old.created_at;
+        end if;
+        if tg_argv[0]::boolean then
+          new.updated_at := now();
+        end if;
+        return new;
+      end;
+      $$`);
+    await q.query(
+      `revoke execute on function app.stamp_timestamps() from public, anon, authenticated`,
+    );
+    for (const [table, hasUpdatedAt] of [
+      ['profiles', true],
+      ['organizations', true],
+      ['memberships', false],
+      ['certification_types', false],
+      ['positions', false],
+      ['user_certifications', true],
+      ['shifts', true],
+      ['swap_requests', true],
+    ] as const) {
+      // Named to sort before other BEFORE triggers (they fire alphabetically), so guards
+      // always see the final timestamps.
+      await q.query(`
+        create trigger a_stamp_timestamps
+          before insert or update on app.${table}
+          for each row execute function app.stamp_timestamps('${hasUpdatedAt}')`);
+    }
+
     // Profile row for every auth user. SECURITY DEFINER because GoTrue's role can't write
     // to app.profiles; empty search_path + fully qualified names so a malicious object on
     // the caller's search_path can't hijack the function.
@@ -246,6 +289,7 @@ export class InitSchema1791980455093 implements MigrationInterface {
     // Trigger lives on auth.users, outside our schema: drop it explicitly before the function.
     await q.query(`drop trigger if exists on_auth_user_created on auth.users`);
     await q.query(`drop function if exists app.handle_new_user()`);
+    // Dropping the tables drops their a_stamp_timestamps triggers.
     await q.query(`drop table app.swap_requests`);
     await q.query(`drop table app.shifts`);
     await q.query(`drop table app.user_certifications`);
@@ -255,6 +299,7 @@ export class InitSchema1791980455093 implements MigrationInterface {
     await q.query(`drop table app.memberships`);
     await q.query(`drop table app.organizations`);
     await q.query(`drop table app.profiles`);
+    await q.query(`drop function app.stamp_timestamps()`);
     await q.query(`drop type app.swap_request_status`);
     await q.query(`drop type app.membership_role`);
     await q.query(`drop schema app`);
