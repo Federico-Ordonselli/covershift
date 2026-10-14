@@ -204,11 +204,12 @@ function WeekGrid(props: {
                         {mine ? <strong> (you)</strong> : null}
                       </span>
                       {mine && Date.parse(shift.startsAt) > now ? (
-                        <Button variant="secondary" onClick={() => onOffer(shift)}>
+                        <Button
+                          variant="secondary"
+                          aria-label={`Offer swap: ${positionName(shift.positionId)}, ${formatDay(day)} ${formatTime(shift.startsAt, timeZone)}`}
+                          onClick={() => onOffer(shift)}
+                        >
                           Offer swap
-                          <span className="visually-hidden">
-                            {`: ${positionName(shift.positionId)}, ${formatDay(day)} ${formatTime(shift.startsAt, timeZone)}`}
-                          </span>
                         </Button>
                       ) : null}
                     </li>
