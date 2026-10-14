@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { type SupabaseClaims } from '../../src/auth/auth-user';
 import { required } from './env';
+import { adminClient } from './supabase';
 
 /**
  * Privileged pool (DATABASE_MIGRATION_URL) for arranging and cleaning up test data only.
@@ -142,4 +143,34 @@ export async function grantCertification(
      values ($1, $2, $3, $4)`,
     [tenant.orgId, userId, certificationTypeId, expiresAt],
   );
+}
+
+/**
+ * Like createTenant, but users are created through GoTrue's admin API with a password,
+ * so tests can log in and get real access tokens.
+ */
+export async function createLoginTenant(
+  pool: Pool,
+  label: string,
+  members: Record<string, MembershipRole>,
+  password: string,
+): Promise<Tenant> {
+  const tenant = await createTenant(pool, label, {});
+  const auth = adminClient();
+  for (const [key, role] of Object.entries(members)) {
+    const email = `${key}-${tenant.slug}@covershift.test`;
+    const { data, error } = await auth.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: key },
+    });
+    if (error) throw error;
+    await pool.query(
+      `insert into app.memberships (organization_id, user_id, role) values ($1, $2, $3)`,
+      [tenant.orgId, data.user.id, role],
+    );
+    tenant.users[key] = { id: data.user.id, email, role };
+  }
+  return tenant;
 }
