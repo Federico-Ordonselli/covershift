@@ -172,14 +172,15 @@ describe('SwapRequestsService (real RLS)', () => {
       );
     });
 
-    it('refuses claiming your own offer and accepting someone else’s direct offer', async () => {
+    it('refuses claiming your own offer and accepting someone else’s direct offer (403)', async () => {
       const open = await offer();
       await expect(
         as('requester', (s) => s.accept(u('requester').id, open.id)),
       ).rejects.toMatchObject({
         code: 'SWAP_NOT_ALLOWED',
+        status: 403,
       });
-      await as('requester', (s) => s.cancel(open.id));
+      await as('requester', (s) => s.cancel(u('requester').id, open.id));
       const direct = await offer('target');
       await expect(
         as('claimer', (s) => s.accept(u('claimer').id, direct.id)),
@@ -204,10 +205,15 @@ describe('SwapRequestsService (real RLS)', () => {
   });
 
   describe('decline / cancel', () => {
-    it('target declines; a bystander cannot (trigger reason, or 404 when hidden)', async () => {
+    it('target declines; a bystander cannot (visible but not theirs: 403)', async () => {
       const swap = await offer('target');
-      await expect(as('claimer', (s) => s.decline(swap.id))).rejects.toMatchObject({ status: 404 });
-      await expect(as('target', (s) => s.decline(swap.id))).resolves.toMatchObject({
+      await expect(as('claimer', (s) => s.decline(u('claimer').id, swap.id))).rejects.toMatchObject(
+        {
+          code: 'SWAP_NOT_ALLOWED',
+          status: 403,
+        },
+      );
+      await expect(as('target', (s) => s.decline(u('target').id, swap.id))).resolves.toMatchObject({
         status: 'declined',
       });
     });
@@ -215,14 +221,18 @@ describe('SwapRequestsService (real RLS)', () => {
     it('requester cancels from accepted; not after approval', async () => {
       const swap = await offer('target');
       await as('target', (s) => s.accept(u('target').id, swap.id));
-      await expect(as('requester', (s) => s.cancel(swap.id))).resolves.toMatchObject({
+      await expect(
+        as('requester', (s) => s.cancel(u('requester').id, swap.id)),
+      ).resolves.toMatchObject({
         status: 'cancelled',
       });
 
       const again = await offer('target');
       await as('target', (s) => s.accept(u('target').id, again.id));
-      await as('manager', (s) => s.approve(again.id));
-      await expect(as('requester', (s) => s.cancel(again.id))).rejects.toMatchObject({
+      await as('manager', (s) => s.approve(u('manager').id, again.id));
+      await expect(
+        as('requester', (s) => s.cancel(u('requester').id, again.id)),
+      ).rejects.toMatchObject({
         code: 'SWAP_INVALID_TRANSITION',
         status: 409,
       });
@@ -233,20 +243,26 @@ describe('SwapRequestsService (real RLS)', () => {
     it('approval reassigns the shift and records the decider', async () => {
       const swap = await offer('target');
       await as('target', (s) => s.accept(u('target').id, swap.id));
-      const approved = await as('manager', (s) => s.approve(swap.id));
+      const approved = await as('manager', (s) => s.approve(u('manager').id, swap.id));
       expect(approved).toMatchObject({ status: 'approved', decidedById: u('manager').id });
       expect(await assignedTo(shift)).toBe(u('target').id);
     });
 
-    it('staff cannot approve (403); a participant manager cannot either (409)', async () => {
+    it('staff cannot approve, and neither can a participant manager (both 403)', async () => {
       const swap = await offer();
       await as('manager', (s) => s.accept(u('manager').id, swap.id));
-      await expect(as('target', (s) => s.approve(swap.id))).rejects.toMatchObject({ status: 403 });
-      await expect(as('manager', (s) => s.approve(swap.id))).rejects.toMatchObject({
-        code: 'SWAP_NOT_ALLOWED',
-        status: 409,
+      await expect(as('target', (s) => s.approve(u('target').id, swap.id))).rejects.toMatchObject({
+        status: 403,
       });
-      await expect(as('manager2', (s) => s.approve(swap.id))).resolves.toMatchObject({
+      await expect(as('manager', (s) => s.approve(u('manager').id, swap.id))).rejects.toMatchObject(
+        {
+          code: 'SWAP_NOT_ALLOWED',
+          status: 403,
+        },
+      );
+      await expect(
+        as('manager2', (s) => s.approve(u('manager2').id, swap.id)),
+      ).resolves.toMatchObject({
         status: 'approved',
       });
     });
@@ -260,7 +276,9 @@ describe('SwapRequestsService (real RLS)', () => {
         [u('target').id, t.orgId],
       );
       try {
-        await expect(as('manager', (s) => s.approve(swap.id))).rejects.toMatchObject({
+        await expect(
+          as('manager', (s) => s.approve(u('manager').id, swap.id)),
+        ).rejects.toMatchObject({
           code: 'CERTIFICATION_EXPIRES_BEFORE_SHIFT_END',
           status: 422,
         });
@@ -281,22 +299,28 @@ describe('SwapRequestsService (real RLS)', () => {
         endsAt: '2030-09-01T20:00:00Z',
         assignedUserId: u('target').id,
       });
-      await expect(as('manager', (s) => s.approve(swap.id))).rejects.toMatchObject({
-        code: 'SHIFT_OVERLAP',
-        status: 409,
-      });
+      await expect(as('manager', (s) => s.approve(u('manager').id, swap.id))).rejects.toMatchObject(
+        {
+          code: 'SHIFT_OVERLAP',
+          status: 409,
+        },
+      );
     });
 
     it('only accepted requests can be approved; managers may reject from pending', async () => {
       const swap = await offer('target');
-      await expect(as('manager', (s) => s.approve(swap.id))).rejects.toMatchObject({
-        code: 'SWAP_INVALID_TRANSITION',
-        status: 409,
-      });
-      await expect(as('manager', (s) => s.reject(swap.id))).resolves.toMatchObject({
-        status: 'rejected',
-        decidedById: u('manager').id,
-      });
+      await expect(as('manager', (s) => s.approve(u('manager').id, swap.id))).rejects.toMatchObject(
+        {
+          code: 'SWAP_INVALID_TRANSITION',
+          status: 409,
+        },
+      );
+      await expect(as('manager', (s) => s.reject(u('manager').id, swap.id))).resolves.toMatchObject(
+        {
+          status: 'rejected',
+          decidedById: u('manager').id,
+        },
+      );
     });
   });
 });

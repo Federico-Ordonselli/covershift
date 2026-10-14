@@ -200,6 +200,12 @@ Services map database outcomes to problem-details responses. Raw driver errors n
 | `23P01` exclusion violation                                 | 409  | `SHIFT_OVERLAP`                                                         |
 | `23505` on `swap_requests_one_active_per_shift`             | 409  | `SWAP_ALREADY_ACTIVE`                                                   |
 
+**Swap transitions answer uniformly.** Every action endpoint first reads the request under
+RLS: hidden gives **404**, visible but not the caller's action gives **403** (`SWAP_NOT_ALLOWED`),
+and the right actor in the wrong state gives **409**. The trigger enforces actor and state again
+on the write itself. `accept` checks state first, so a late claimer of an already-claimed
+offer hears "taken" (409) rather than "not yours".
+
 **Write path rule:** `swap_requests` is never written with `repository.save()`. `save()`
 does a read-then-write and sends every changed column. That conflicts with the column
 grants, and it cannot express the conditional `WHERE status = 'pending'` that resolves
