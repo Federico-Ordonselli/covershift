@@ -134,6 +134,13 @@ and superseded runs are cancelled. No repository secrets are used.
 | **supabase db lint** (plpgsql_check on `app`, `ops`; in the integration job) | Broken PL/pgSQL: unknown columns/types in triggers and helpers                                                                                                                                                                                                                                    | Logic errors in correct-looking functions; SQL-language functions and policies (catalog test + RLS suites)          |
 | **Dependabot** (weekly)                                                      | Outdated npm packages and pinned actions                                                                                                                                                                                                                                                          | Anything it can't open a PR for (e.g. a breaking major you haven't reviewed)                                        |
 
+**Dependabot policy** (`.github/dependabot.yml`): all `@nestjs/*` updates arrive as one PR,
+majors included, because Nest moves as a unit. Other minors and patches are grouped, other
+majors (e.g. TypeScript) get one PR each, and `@types/node` majors are ignored so the types
+track `.nvmrc`. Closing a Dependabot PR makes it ignore that version. To bring it back,
+comment `@dependabot unignore <dependency> <version>` on any Dependabot PR (or
+`@dependabot show <dependency> ignore conditions` to list them).
+
 **Deferred to phase 4** (with the Docker image and Terraform): Trivy scan of the API image,
 IaC scanning of `infra/` (Checkov or tfsec), Dependabot for Docker and Terraform, and
 **GitHub OIDC to AWS** for deploys instead of long-lived access keys.
