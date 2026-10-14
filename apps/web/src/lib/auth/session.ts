@@ -45,8 +45,13 @@ export function createSessionStore(auth: AuthClient, onSignedOut: () => void) {
   const tokens: TokenSource = {
     current: async () => (await auth.getSession()).data.session?.access_token ?? null,
     refresh: async () => {
+      // Only the API client calls this, after a 401. If the refresh token is dead too,
+      // supabase-js emits SIGNED_OUT *during* refreshSession(); that sign-out is an expiry.
+      expiring = true;
       const { data, error } = await auth.refreshSession();
-      return error ? null : (data.session?.access_token ?? null);
+      const token = error ? null : (data.session?.access_token ?? null);
+      if (token) expiring = false;
+      return token;
     },
   };
 
@@ -61,7 +66,7 @@ export function createSessionStore(auth: AuthClient, onSignedOut: () => void) {
     signOut: () => auth.signOut(),
     /** The API rejected the session and refresh failed: sign out here, say why on login. */
     expire() {
-      if (state.status !== 'signedIn' || expiring) return;
+      if (state.status !== 'signedIn') return;
       expiring = true;
       void auth.signOut({ scope: 'local' });
     },

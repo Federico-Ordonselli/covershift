@@ -40,10 +40,13 @@ export function fakeAuth(signedIn: boolean) {
       emit('SIGNED_OUT');
       return { error: null };
     }),
-    refreshSession: vi.fn(async () => ({
-      data: { session: null, user: null },
-      error: { code: 'x' },
-    })),
+    // Like supabase-js with a dead refresh token: the session is dropped and SIGNED_OUT
+    // is emitted before refreshSession() resolves with the error.
+    refreshSession: vi.fn(async () => {
+      current = null;
+      emit('SIGNED_OUT');
+      return { data: { session: null, user: null }, error: { code: 'refresh_token_not_found' } };
+    }),
   };
   return auth as typeof auth & AuthClient;
 }
