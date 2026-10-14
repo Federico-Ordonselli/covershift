@@ -5,6 +5,23 @@ export const IsoDateTimeSchema = z.iso.datetime({ offset: true });
 
 export const UuidSchema = z.uuid();
 
+/**
+ * Keyset pagination. The cursor is opaque to clients: pass back `nextCursor` verbatim.
+ * `nextCursor: null` means there are no more items.
+ */
+export const PAGE_SIZE_DEFAULT = 50;
+export const PAGE_SIZE_MAX = 100;
+export const PageQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(PAGE_SIZE_MAX).default(PAGE_SIZE_DEFAULT),
+  cursor: z.string().min(1).max(512).optional(),
+});
+export type PageQuery = z.infer<typeof PageQuerySchema>;
+
+export function pageSchema<T extends z.ZodType>(item: T) {
+  return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
+}
+export type Page<T> = { items: T[]; nextCursor: string | null };
+
 /** RFC 9457 problem details, with a stable machine-readable `code`. */
 export const ProblemDetailsSchema = z.object({
   type: z.string(),
