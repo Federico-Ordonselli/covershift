@@ -196,7 +196,11 @@ function WeekGrid(props: {
                     >
                       <span className={styles.time}>
                         {formatTime(shift.startsAt, timeZone)}–{formatTime(shift.endsAt, timeZone)}
-                        {nextDay ? <span aria-label=" (ends the next day)">+1</span> : null}
+                        {nextDay ? (
+                          <span className={styles.nextDay} aria-label=" (ends the next day)">
+                            +1
+                          </span>
+                        ) : null}
                       </span>
                       <span className={styles.position}>{positionName(shift.positionId)}</span>
                       <span className={styles.assignee}>
