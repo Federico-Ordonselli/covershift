@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClsModule } from 'nestjs-cls';
@@ -8,6 +8,8 @@ import { RlsTransactionInterceptor } from './rls/rls-transaction.interceptor';
 import { RlsTransactionRunner } from './rls/rls-transaction.runner';
 import { TxManager } from './rls/tx-manager';
 
+/** Global: TxManager / RlsTransactionRunner are infrastructure every feature module uses. */
+@Global()
 @Module({
   imports: [
     ClsModule.forRoot({ global: true, middleware: { mount: true } }),

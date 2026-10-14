@@ -103,3 +103,43 @@ export async function insertShift(
   );
   return id;
 }
+
+export async function addCertificationType(
+  pool: Pool,
+  tenant: Tenant,
+  name: string,
+): Promise<string> {
+  const id = randomUUID();
+  await pool.query(
+    `insert into app.certification_types (id, organization_id, name) values ($1, $2, $3)`,
+    [id, tenant.orgId, name],
+  );
+  return id;
+}
+
+export async function requireCertification(
+  pool: Pool,
+  tenant: Tenant,
+  certificationTypeId: string,
+  positionId = tenant.positionId,
+): Promise<void> {
+  await pool.query(
+    `insert into app.position_certification_requirements
+       (organization_id, position_id, certification_type_id) values ($1, $2, $3)`,
+    [tenant.orgId, positionId, certificationTypeId],
+  );
+}
+
+export async function grantCertification(
+  pool: Pool,
+  tenant: Tenant,
+  userId: string,
+  certificationTypeId: string,
+  expiresAt: string | null,
+): Promise<void> {
+  await pool.query(
+    `insert into app.user_certifications (organization_id, user_id, certification_type_id, expires_at)
+     values ($1, $2, $3, $4)`,
+    [tenant.orgId, userId, certificationTypeId, expiresAt],
+  );
+}
