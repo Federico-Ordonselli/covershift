@@ -10,6 +10,7 @@ import { type ProblemDetails } from '@covershift/shared';
 import type { Response } from 'express';
 import { ZodSerializationException, ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
+import { isPrivilegeBug, translateDatabaseError } from './database-errors';
 import { DomainError } from './domain-error';
 
 /** Maps every error to an RFC 9457 problem-details body. Unknown errors never leak details. */
@@ -24,6 +25,15 @@ export class ProblemDetailsFilter implements ExceptionFilter {
   }
 
   private toProblem(exception: unknown): ProblemDetails {
+    const fromDatabase = translateDatabaseError(exception);
+    if (fromDatabase) {
+      if (isPrivilegeBug(exception)) {
+        // Mapped to 403 per ADR 001, but a missing grant is almost always our bug: be loud.
+        this.logger.error('Privilege error outside RLS policies', exception);
+      }
+      exception = fromDatabase;
+    }
+
     if (exception instanceof DomainError) {
       return problem(exception.status, exception.message, exception.code);
     }

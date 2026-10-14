@@ -20,6 +20,7 @@
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/typeorm": "^11.0.3",
     "jose": "^6.2.12",
+    "nestjs-cls": "^7.0.1",
     "nestjs-zod": "^5.5.0",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
