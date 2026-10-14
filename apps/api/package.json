@@ -15,7 +15,7 @@
   "dependencies": {
     "@covershift/shared": "workspace:*",
     "@nestjs/common": "^11.2.7",
-    "@nestjs/core": "^11.2.7",
+    "@nestjs/core": "^12.1.2",
     "@nestjs/platform-express": "^11.2.7",
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/typeorm": "^11.0.3",
