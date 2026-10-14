@@ -1,4 +1,5 @@
 import { type INestApplication } from '@nestjs/common';
+import { LIST_HARD_CAP } from '@covershift/shared';
 import { randomUUID } from 'node:crypto';
 import { type Pool } from 'pg';
 import type request from 'supertest';
@@ -163,9 +164,67 @@ describe('e2e: frontend reads and pagination', () => {
       '%s: a deactivated member has lost access (404)',
       async (sub) => {
         const res = await get(`/organizations/${a.orgId}/${sub}`, await bearer(a, 'leaver'));
-        expect(res.status).toBe(404);
+        // Status and body together: a failure shows whether anything leaked.
+        expect({ status: res.status, body: res.body }).toEqual({
+          status: 404,
+          body: expect.objectContaining({ code: 'NOT_FOUND' }),
+        });
       },
     );
+  });
+
+  describe(`hard cap: positions and members return at most ${LIST_HARD_CAP}`, () => {
+    let big: Tenant;
+    const bulkEmail = (slug: string) => `bulk-%-${slug}@covershift.test`;
+
+    beforeAll(async () => {
+      big = await createLoginTenant(admin, 'fe-big', { manager: 'manager' }, PASSWORD);
+      const over = LIST_HARD_CAP + 1;
+      await admin.query(
+        `insert into app.positions (organization_id, name)
+         select $1, 'P' || lpad(g::text, 4, '0') from generate_series(1, $2) g`,
+        [big.orgId, over],
+      );
+      // Profiles come from the on_auth_user_created trigger.
+      await admin.query(
+        `with u as (
+           insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data)
+           select gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'authenticated',
+                  'authenticated', replace($2, '%', g::text),
+                  jsonb_build_object('full_name', 'Bulk ' || lpad(g::text, 4, '0'))
+           from generate_series(1, $3) g
+           returning id)
+         insert into app.memberships (organization_id, user_id, role)
+         select $1, id, 'staff' from u`,
+        [big.orgId, bulkEmail(big.slug), over],
+      );
+    });
+
+    afterAll(async () => {
+      if (!big) return;
+      await admin.query(`delete from app.organizations where id = $1`, [big.orgId]);
+      await admin.query(`delete from auth.users where email like $1`, [bulkEmail(big.slug)]);
+      for (const user of Object.values(big.users))
+        await adminClient().auth.admin.deleteUser(user.id);
+    });
+
+    it('positions: the first LIST_HARD_CAP by name', async () => {
+      const res = await get(`/organizations/${big.orgId}/positions`, await bearer(big, 'manager'));
+      expect(res.status).toBe(200);
+      const { rows } = await admin.query<{ id: string }>(
+        `select id from app.positions where organization_id = $1 order by name, id limit $2`,
+        [big.orgId, LIST_HARD_CAP],
+      );
+      expect(res.body.map((p: { id: string }) => p.id)).toEqual(rows.map((r) => r.id));
+    });
+
+    it('members: the first LIST_HARD_CAP by name', async () => {
+      const res = await get(`/organizations/${big.orgId}/members`, await bearer(big, 'manager'));
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(LIST_HARD_CAP);
+      expect(res.body[0].fullName).toBe('Bulk 0001');
+      expect(res.body.at(-1).fullName).toBe(`Bulk ${String(LIST_HARD_CAP).padStart(4, '0')}`);
+    });
   });
 
   describe('GET /shifts pagination', () => {

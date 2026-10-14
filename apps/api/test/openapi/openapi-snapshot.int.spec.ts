@@ -23,6 +23,32 @@ describe('OpenAPI snapshot', () => {
     await app?.close();
   });
 
+  it('every operation documents explicit success and problem+json error responses', () => {
+    const doc = buildOpenApiDocument(app);
+    const problems: string[] = [];
+    for (const [path, item] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(item as Record<string, { responses?: object }>)) {
+        const responses = (op.responses ?? {}) as Record<string, { content?: object }>;
+        const where = `${method.toUpperCase()} ${path}`;
+        if ('default' in responses) problems.push(`${where}: generic "default" response`);
+        if (!Object.keys(responses).some((s) => s.startsWith('2'))) {
+          problems.push(`${where}: no explicit 2xx response`);
+        }
+        if (path !== '/health') {
+          for (const required of ['401', '500']) {
+            if (!(required in responses)) problems.push(`${where}: missing ${required}`);
+          }
+        }
+        for (const [status, response] of Object.entries(responses)) {
+          if (Number(status) >= 400 && !('application/problem+json' in (response.content ?? {}))) {
+            problems.push(`${where}: ${status} is not application/problem+json`);
+          }
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
   it('docs/openapi.json matches the generated document', () => {
     const generated = `${JSON.stringify(buildOpenApiDocument(app), null, 2)}\n`;
     if (process.env.UPDATE_OPENAPI === '1') writeFileSync(SNAPSHOT, generated);

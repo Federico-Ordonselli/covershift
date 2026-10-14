@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
+  LIST_HARD_CAP,
   type Me,
   type Member,
   type MembershipRole,
@@ -33,6 +34,8 @@ interface MemberRow {
  */
 @Injectable()
 export class OrganizationsService {
+  private readonly logger = new Logger(OrganizationsService.name);
+
   constructor(private readonly tx: TxManager) {}
 
   async me(user: AuthUser): Promise<Me> {
@@ -62,8 +65,13 @@ export class OrganizationsService {
     const rows = await this.tx.get().find(Position, {
       where: { organizationId },
       order: { name: 'ASC', id: 'ASC' },
+      take: LIST_HARD_CAP + 1,
     });
-    return rows.map((p) => ({ id: p.id, organizationId: p.organizationId, name: p.name }));
+    return this.capped(rows, 'positions', organizationId).map((p) => ({
+      id: p.id,
+      organizationId: p.organizationId,
+      name: p.name,
+    }));
   }
 
   /** Active members only: a deactivated member can't be assigned or offered shifts. */
@@ -74,15 +82,23 @@ export class OrganizationsService {
        from app.memberships m
        join app.profiles p on p.id = m.user_id
        where m.organization_id = $1 and m.deactivated_at is null
-       order by p.full_name, m.user_id`,
-      [organizationId],
+       order by p.full_name, m.user_id
+       limit $2`,
+      [organizationId, LIST_HARD_CAP + 1],
     );
-    return rows.map((r) => ({
+    return this.capped(rows, 'members', organizationId).map((r) => ({
       userId: r.user_id,
       fullName: r.full_name,
       role: r.role,
       memberSince: r.created_at.toISOString(),
     }));
+  }
+
+  /** Truncates to LIST_HARD_CAP; the extra fetched row only tells us that it happened. */
+  private capped<T>(rows: T[], list: string, organizationId: string): T[] {
+    if (rows.length <= LIST_HARD_CAP) return rows;
+    this.logger.warn(`${list} of ${organizationId} truncated at ${LIST_HARD_CAP}`);
+    return rows.slice(0, LIST_HARD_CAP);
   }
 
   /** 404 whether the organization doesn't exist or RLS hides it: deliberately indistinguishable. */
