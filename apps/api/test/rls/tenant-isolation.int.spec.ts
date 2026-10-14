@@ -257,6 +257,46 @@ describe('RLS: tenant isolation', () => {
   });
 
   describe('deactivated members (soft delete)', () => {
+    // Each org-scoped table must deny a deactivated member through its OWN policy, not
+    // because the API checked organizations first: negative control = organizations RLS
+    // disabled alone keeps this green; any one of these tables' RLS disabled turns it red.
+    // Literal SQL per table: the SQL-interpolation lint rule applies to tests too.
+    const countInOrg = {
+      positions: 'select count(*)::int as n from app.positions where organization_id = $1',
+      memberships: 'select count(*)::int as n from app.memberships where organization_id = $1',
+      certification_types:
+        'select count(*)::int as n from app.certification_types where organization_id = $1',
+      position_certification_requirements:
+        'select count(*)::int as n from app.position_certification_requirements where organization_id = $1',
+      shifts: 'select count(*)::int as n from app.shifts where organization_id = $1',
+      swap_requests: 'select count(*)::int as n from app.swap_requests where organization_id = $1',
+      user_certifications:
+        'select count(*)::int as n from app.user_certifications where organization_id = $1',
+    };
+    it.each(Object.entries(countInOrg))(
+      '%s: no rows of the organization, by its own policy',
+      async (table, sql) => {
+        const { rows } = await admin.query<{ n: number }>(sql, [a.orgId]);
+        // A vacuous pass (nothing to hide) would prove nothing.
+        if (['positions', 'memberships', 'shifts'].includes(table))
+          expect(rows[0]!.n).toBeGreaterThan(0);
+
+        await admin.query(
+          `update app.memberships set deactivated_at = now() where organization_id = $1 and user_id = $2`,
+          [a.orgId, a.users.coworker!.id],
+        );
+        try {
+          const visible = await db.as(a.users.coworker!, sql, [a.orgId]);
+          expect(visible).toEqual([{ n: 0 }]);
+        } finally {
+          await admin.query(
+            `update app.memberships set deactivated_at = null where organization_id = $1 and user_id = $2`,
+            [a.orgId, a.users.coworker!.id],
+          );
+        }
+      },
+    );
+
     it('lose all access immediately, while their history stays visible to others', async () => {
       await admin.query(
         `update app.memberships set deactivated_at = now() where organization_id = $1 and user_id = $2`,

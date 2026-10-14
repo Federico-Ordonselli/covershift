@@ -72,6 +72,9 @@ OpenAPI UI at `/docs` (JSON at `/docs-json`), generated from the zod contracts i
 
 | Endpoint                                                  | Who                                                    |
 | --------------------------------------------------------- | ------------------------------------------------------ |
+| `GET /me`                                                 | anyone signed in: profile + active memberships, roles  |
+| `GET /organizations`                                      | anyone signed in: organizations they're active in      |
+| `GET /organizations/:id/positions`, `/members`            | members of that organization (active members only)     |
 | `GET /shifts`, `GET /shifts/:id`                          | members of the shift's organization                    |
 | `POST /shifts`, `PATCH /shifts/:id`, `DELETE /shifts/:id` | managers and admins                                    |
 | `GET /swap-requests`, `GET /swap-requests/:id`            | members                                                |
@@ -81,15 +84,31 @@ OpenAPI UI at `/docs` (JSON at `/docs-json`), generated from the zod contracts i
 | `POST /swap-requests/:id/cancel`                          | the requester (pending or accepted)                    |
 | `POST /swap-requests/:id/approve`, `/reject`              | managers and admins who are not part of the swap       |
 
-Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json` with
-a stable `code`:
+**Lists** (`GET /shifts`, `GET /swap-requests`) are keyset-paginated: `?limit=` (1–100,
+default 50) and `?cursor=`, answering `{ items, nextCursor }`. Pass `nextCursor` back verbatim;
+`null` means the end. Shifts come in start-time order and take `from`/`to` (overlapping
+`[from, to)`), `organizationId` and `assignedUserId`. Swap requests come newest first and take
+`organizationId`, `shiftId`, `status`, `requesterId`, `targetUserId` and `open` (`true` = no
+target). The committed contract is [`docs/openapi.json`](docs/openapi.json); a test fails when
+it drifts from the code (`pnpm --filter @covershift/api openapi:update` to refresh it).
 
-- **400**: invalid input, with `errors[]` per field.
-- **401**: missing or invalid token.
-- **403**: you can see it but it's not your action.
-- **404**: it doesn't exist _or_ you can't see it (deliberately indistinguishable).
+`GET /organizations/:id/positions` and `/members` are not paginated; they return at most
+**500** rows (`LIST_HARD_CAP` in `packages/shared`), ordered by name, and log a warning when an
+organization exceeds it.
+
+**Every** error is [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
+with a required, stable `code`, including errors raised outside our services (auth guard,
+id parsing, body parsing, unknown routes, unexpected failures). `docs/openapi.json` lists, per
+endpoint, the statuses and codes it can return. Clients branch on `code`, never on `detail`:
+
+- **400**: `VALIDATION_FAILED` (invalid input or id, with `errors[]` per field) or `MALFORMED_REQUEST` (body isn't valid JSON, or a broken URL encoding).
+- **401**: `UNAUTHORIZED`, missing or invalid token.
+- **403**: `FORBIDDEN` or `SWAP_NOT_ALLOWED`, you can see it but it's not your action.
+- **404**: `NOT_FOUND`, it doesn't exist _or_ you can't see it (deliberately indistinguishable), or the route doesn't exist.
 - **409**: a state or conflict problem (`SHIFT_OVERLAP`, `SWAP_ALREADY_ACTIVE`, invalid transition, lost race).
+- **413** `PAYLOAD_TOO_LARGE` (body over 100 kB), **415** `UNSUPPORTED_MEDIA_TYPE` (body charset).
 - **422**: a rule violation (`CERTIFICATION_MISSING`, `CERTIFICATION_EXPIRES_BEFORE_SHIFT_END`, `NOT_A_MEMBER`).
+- **500**: `INTERNAL_ERROR`, with no details.
 
 ## Tests
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IsoDateTimeSchema, UuidSchema } from './common.js';
+import { IsoDateTimeSchema, PageQuerySchema, pageSchema, UuidSchema } from './common.js';
 
 const endsAfterStart = (v: { startsAt?: string; endsAt?: string }) =>
   v.startsAt === undefined ||
@@ -43,10 +43,17 @@ export const UpdateShiftSchema = z
   .refine(endsAfterStart, endsAfterStartIssue);
 export type UpdateShift = z.infer<typeof UpdateShiftSchema>;
 
-export const ListShiftsQuerySchema = z.object({
+/** `from`/`to` select shifts overlapping [from, to). Ordered by start time, then id. */
+export const ListShiftsQuerySchema = PageQuerySchema.extend({
   organizationId: UuidSchema.optional(),
   assignedUserId: UuidSchema.optional(),
   from: IsoDateTimeSchema.optional(),
   to: IsoDateTimeSchema.optional(),
+}).refine((v) => !v.from || !v.to || Date.parse(v.to) > Date.parse(v.from), {
+  message: 'to must be after from',
+  path: ['to'],
 });
 export type ListShiftsQuery = z.infer<typeof ListShiftsQuerySchema>;
+
+export const ShiftPageSchema = pageSchema(ShiftSchema);
+export type ShiftPage = z.infer<typeof ShiftPageSchema>;

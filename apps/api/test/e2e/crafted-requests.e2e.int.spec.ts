@@ -156,16 +156,16 @@ describe('e2e: crafted requests', () => {
         .get('/shifts')
         .set('authorization', await bearer(a, 'staff'));
       expect(own.status).toBe(200);
-      expect(new Set(own.body.map((s: { organizationId: string }) => s.organizationId))).toEqual(
-        new Set([a.orgId]),
-      );
+      expect(
+        new Set(own.body.items.map((s: { organizationId: string }) => s.organizationId)),
+      ).toEqual(new Set([a.orgId]));
 
       const crafted = await http()
         .get('/shifts')
         .query({ organizationId: b.orgId })
         .set('authorization', await bearer(a, 'staff'));
       expect(crafted.status).toBe(200);
-      expect(crafted.body).toEqual([]);
+      expect(crafted.body).toEqual({ items: [], nextCursor: null });
     });
 
     it('GET, PATCH and DELETE of another tenant’s shift are 404 and change nothing', async () => {

@@ -85,7 +85,7 @@ export function claimsFor(user: { id: string }): SupabaseClaims {
 }
 
 export async function insertShift(
-  pool: Pool,
+  pool: Pick<Pool, 'query'>, // a pool, or a client inside a transaction
   tenant: Tenant,
   values: { startsAt: string; endsAt: string; assignedUserId?: string | null },
 ): Promise<string> {
