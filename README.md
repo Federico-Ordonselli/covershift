@@ -30,7 +30,7 @@ without a certification valid until the shift ends.
 | Path              | What                                                |
 | ----------------- | --------------------------------------------------- |
 | `apps/api`        | NestJS REST API (TypeORM, Supabase Postgres + Auth) |
-| `apps/web`        | React frontend (phase 2)                            |
+| `apps/web`        | React frontend (Vite, React Router, TanStack Query) |
 | `packages/shared` | Zod contracts shared between API and web            |
 | `infra`           | Terraform for AWS ECS Fargate (phase 4)             |
 | `docs/adr`        | Architecture decision records                       |
@@ -41,11 +41,26 @@ Requirements: Node 24, pnpm (via Corepack), Docker.
 
 ```sh
 pnpm install
-pnpm db:start   # ES256 signing key on first run, `supabase start`, then writes apps/api/.env
+pnpm db:start   # ES256 signing key on first run, `supabase start`, then writes the env files
 pnpm db:migrate
 pnpm db:seed    # demo org: 1 manager + 3 staff, positions, a week of shifts, one open swap
 pnpm --filter @covershift/api dev   # API on :3000, OpenAPI UI at /docs
+pnpm --filter @covershift/web dev   # web app on http://127.0.0.1:5173 (proxies /api to :3000)
 ```
+
+**Web app.** The browser talks to the API same-origin under `/api` (Vite proxies it in dev and
+preview; hosting will route it the same way), so the API has no CORS policy. Supabase is used
+for authentication only; all data goes through the API with the user's access token.
+`pnpm db:env` also writes `apps/web/.env.local` with the public values the bundle needs
+(Supabase URL and publishable key, never the secret key). Public signup is disabled in
+`supabase/config.toml`; accounts come from the seed (later: invitations).
+
+**Security headers.** `apps/web/security-headers.ts` defines the Content-Security-Policy
+(no inline scripts or styles, no `eval`, `connect-src` limited to self and the Supabase URL,
+`frame-ancestors 'none'`) and companion headers. `vite preview` serves them, so the e2e suite
+runs under the real policy and fails on any violation; phase 4 hosting reuses the module.
+The session lives in `localStorage` (survives reloads, shared across tabs); this CSP is the
+XSS mitigation that choice relies on.
 
 The Supabase CLI is a pinned devDependency, so no global install is needed.
 `pnpm db:env` (run by `db:start`) writes `apps/api/.env` from `apps/api/.env.example` plus the
@@ -115,6 +130,9 @@ endpoint, the statuses and codes it can return. Clients branch on `code`, never 
 ```sh
 pnpm --filter @covershift/api test:unit   # no database needed
 pnpm --filter @covershift/api test:int    # needs pnpm db:start && pnpm db:migrate
+pnpm --filter @covershift/web test        # component tests (Vitest, Testing Library, MSW)
+pnpm --filter @covershift/api build && pnpm --filter @covershift/web build
+pnpm --filter @covershift/web e2e         # Playwright on the real stack (seeds first)
 ```
 
 | Suite (`apps/api`)                                            | What it proves                                                                                         |
@@ -125,6 +143,12 @@ pnpm --filter @covershift/api test:int    # needs pnpm db:start && pnpm db:migra
 | `test/certifications/`, `test/shifts/`, `test/swap-requests/` | Services under real RLS, incl. concurrent claims                                                       |
 | `test/e2e/`                                                   | The real app over HTTP: forged tokens, cross-tenant ids, mass assignment, all five transitions         |
 | `test/lint/`, `test/seed/`                                    | The SQL-interpolation lint rule fires; seeded data satisfies the domain rules                          |
+
+| Suite (`apps/web`)    | What it proves                                                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/**/*.test.ts(x)` | API client (single-flight token refresh, error envelope, contract checks), error-code copy, forms, org layout, schedule, open-redirect guard |
+| `test/msw/`           | Every mocked response is parsed with the shared zod schemas, so mocks can't drift from the API                                               |
+| `e2e/` (Playwright)   | Login, session persistence and expiry, sign-out, schedule in the org's time zone, org switching, CSP and axe (WCAG 2.1 AA) on every run      |
 
 The suites were checked with **negative controls**: with RLS switched off, a rule removed, or
 token verification disabled, the corresponding tests go red. See the report for details.
@@ -145,8 +169,9 @@ and superseded runs are cancelled. No repository secrets are used.
 | **Lint** (`ci.yml`)                                                          | Style/correctness rules; **SQL built by interpolation** or `+` (fails the build, ADR 001)                                                                                                                                                                                                         | SQL assembled in another module and passed in as a plain variable (the rule is syntactic)                           |
 | **Typecheck**                                                                | Type errors across API and shared contracts                                                                                                                                                                                                                                                       | Anything runtime: SQL, RLS, env                                                                                     |
 | **Unit tests**                                                               | JWT verification edge cases, error mapping, zod contracts, the lint rule itself                                                                                                                                                                                                                   | Anything that needs Postgres                                                                                        |
-| **Integration tests** (real Supabase: db, auth, kong)                        | **Tenant isolation and swap rules through the real RLS role**, and over HTTP with the real app: forged/misused tokens (incl. the stack's own `service_role` key), other tenants' ids in paths/queries/bodies, mass-assignment; JWKS against real GoTrue, commit-time errors, migration round-trip | Load/performance, browser flows (phase 2)                                                                           |
+| **Integration tests** (real Supabase: db, auth, kong)                        | **Tenant isolation and swap rules through the real RLS role**, and over HTTP with the real app: forged/misused tokens (incl. the stack's own `service_role` key), other tenants' ids in paths/queries/bodies, mass-assignment; JWKS against real GoTrue, commit-time errors, migration round-trip | Load/performance, browser flows (E2E job)                                                                           |
 | ↳ **Policy catalog test** (`test/rls/policy-hygiene.int.spec.ts`)            | Unwrapped `auth.uid()`/helper calls in policies (Supabase `auth_rls_initplan`), tables without RLS, `SECURITY DEFINER` without pinned `search_path`                                                                                                                                               | Whether a policy's _logic_ is right (that's the RLS suites' job)                                                    |
+| **E2E** (Playwright: built API + `vite preview` on real Supabase)            | Login, session expiry, schedule, org switching through a real browser; **any CSP violation** or **axe WCAG 2.1 AA violation** fails the run                                                                                                                                                       | Browsers other than Chromium; visual regressions                                                                    |
 | **CodeQL** (`security.yml`, also weekly)                                     | Injection, unsafe deserialization, path traversal and similar patterns in TS                                                                                                                                                                                                                      | **RLS or authorization logic bugs**: it can't reason about policies or triggers. The RLS suites and catalog test do |
 | **gitleaks** (full history)                                                  | Committed credentials (default rules, no allowlist: no key-shaped values are tracked)                                                                                                                                                                                                             | Secrets outside git (CI logs, env), or ones in formats no rule recognises                                           |
 | **pnpm audit**                                                               | Known advisories: high/critical in prod deps block, everything else is reported                                                                                                                                                                                                                   | Unknown vulnerabilities, malicious-but-unreported packages, vulnerable code paths you don't actually use            |
