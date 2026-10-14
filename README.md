@@ -1,9 +1,29 @@
 # Covershift
 
-Multi-tenant shift scheduling and shift-swap platform for operational teams
-(airport security, retail, healthcare).
+Multi-tenant shift scheduling and shift-swap API for operational teams (airport security,
+retail, healthcare): managers schedule shifts, staff swap them, and nobody works a position
+without a certification valid until the shift ends.
 
-> Phase 1: API, schema, row-level security. See `docs/adr/` for design decisions.
+> **Phase 1 is complete**: API, schema, row-level security, CI. What was built, what's fragile,
+> and what comes next: [`docs/phase-1-report.md`](docs/phase-1-report.md). Design decisions:
+> [`docs/adr/`](docs/adr/).
+
+## Architecture in one minute
+
+- **The database is the last line of defense, even for our own backend.** NestJS verifies the
+  Supabase JWT against the project's JWKS, then runs every request in one transaction that
+  impersonates the user (`set local role authenticated` + `request.jwt.claims`). Postgres RLS
+  policies decide which rows exist for that user. The API connects as a role with **no
+  privileges of its own**, so a query outside that transaction fails instead of leaking.
+  ([ADR 001](docs/adr/001-rls-through-nestjs.md))
+- **Each rule lives where it's best explained, with a backstop that can't be skipped.** The
+  service layer gives readable errors (certifications, overlaps). The database enforces tenant
+  isolation, composite tenant FKs, an exclusion constraint against double-booking, and the
+  swap state machine as a trigger.
+- **TypeORM migrations own the schema**, including RLS, written as reviewed SQL.
+  ([ADR 002](docs/adr/002-schema-ownership-typeorm.md))
+- Domain tables live in a schema the Supabase Data API does not expose, so NestJS is the only
+  way in.
 
 ## Layout
 
@@ -45,6 +65,51 @@ rules, and a test checks that with the API's own eligibility service.
 migrations in `apps/api` (see `docs/adr`). Realtime, Storage, Edge Functions
 and Analytics are disabled in `supabase/config.toml` until the phases that need them.
 
+## API
+
+OpenAPI UI at `/docs` (JSON at `/docs-json`), generated from the zod contracts in
+`packages/shared`. Every route except `GET /health` needs `Authorization: Bearer <Supabase access token>`.
+
+| Endpoint                                                  | Who                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------ |
+| `GET /shifts`, `GET /shifts/:id`                          | members of the shift's organization                    |
+| `POST /shifts`, `PATCH /shifts/:id`, `DELETE /shifts/:id` | managers and admins                                    |
+| `GET /swap-requests`, `GET /swap-requests/:id`            | members                                                |
+| `POST /swap-requests`                                     | the assignee of the shift (direct or open offer)       |
+| `POST /swap-requests/:id/accept`                          | the direct target, or any other member for open offers |
+| `POST /swap-requests/:id/decline`                         | the direct target                                      |
+| `POST /swap-requests/:id/cancel`                          | the requester (pending or accepted)                    |
+| `POST /swap-requests/:id/approve`, `/reject`              | managers and admins who are not part of the swap       |
+
+Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json` with
+a stable `code`:
+
+- **400**: invalid input, with `errors[]` per field.
+- **401**: missing or invalid token.
+- **403**: you can see it but it's not your action.
+- **404**: it doesn't exist _or_ you can't see it (deliberately indistinguishable).
+- **409**: a state or conflict problem (`SHIFT_OVERLAP`, `SWAP_ALREADY_ACTIVE`, invalid transition, lost race).
+- **422**: a rule violation (`CERTIFICATION_MISSING`, `CERTIFICATION_EXPIRES_BEFORE_SHIFT_END`, `NOT_A_MEMBER`).
+
+## Tests
+
+```sh
+pnpm --filter @covershift/api test:unit   # no database needed
+pnpm --filter @covershift/api test:int    # needs pnpm db:start && pnpm db:migrate
+```
+
+| Suite (`apps/api`)                                            | What it proves                                                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `src/**/*.spec.ts`                                            | Eligibility rule edge cases, JWT verification, database-error mapping                                  |
+| `test/rls/`                                                   | Tenant isolation and the swap state machine **at the SQL level**, as the real API role                 |
+| `test/database/`                                              | The RLS transaction unit: fails closed, no identity leak across pooled connections, commit-time errors |
+| `test/certifications/`, `test/shifts/`, `test/swap-requests/` | Services under real RLS, incl. concurrent claims                                                       |
+| `test/e2e/`                                                   | The real app over HTTP: forged tokens, cross-tenant ids, mass assignment, all five transitions         |
+| `test/lint/`, `test/seed/`                                    | The SQL-interpolation lint rule fires; seeded data satisfies the domain rules                          |
+
+The suites were checked with **negative controls**: with RLS switched off, a rule removed, or
+token verification disabled, the corresponding tests go red. See the report for details.
+
 ## CI & Security
 
 Every push to `main` and every PR runs two workflows. Actions are pinned to commit SHAs
@@ -76,6 +141,17 @@ pnpm --filter @covershift/api test           # unit + integration (needs pnpm db
 pnpm supabase db lint --local --schema app,ops --fail-on error
 ```
 
+## Tech choices worth noting
+
+- **NestJS 11, not 12.** Nest 12 is ESM-only and `nestjs-zod` (the zod → DTO/OpenAPI
+  bridge) does not support it yet. Moving to 12 is a contained follow-up.
+- **TypeORM 1.x**, DataSource API only. `synchronize` is never enabled: the schema is
+  owned by migrations.
+- **Vitest + unplugin-swc** instead of Jest: faster, native ESM, and SWC emits the
+  decorator metadata Nest DI and TypeORM need (Vitest's default esbuild transform can't).
+- **Zod contracts in `packages/shared`** are the single source of truth for validation,
+  OpenAPI and (later) frontend types.
+
 ## Troubleshooting
 
 ### `supabase start` fails with `HealthCheckTimeoutError ... unexpected status 502`
@@ -105,14 +181,3 @@ pnpm db:stop && pnpm db:start
 
 Setting `"dns-search"` in `/etc/docker/daemon.json` does **not** fix this. It did
 not take effect for the Supabase containers' resolver, so don't rely on it.
-
-## Tech choices worth noting
-
-- **NestJS 11, not 12.** Nest 12 is ESM-only and `nestjs-zod` (the zod → DTO/OpenAPI
-  bridge) does not support it yet. Moving to 12 is a contained follow-up.
-- **TypeORM 1.x**, DataSource API only. `synchronize` is never enabled: the schema is
-  owned by migrations.
-- **Vitest + unplugin-swc** instead of Jest: faster, native ESM, and SWC emits the
-  decorator metadata Nest DI and TypeORM need (Vitest's default esbuild transform can't).
-- **Zod contracts in `packages/shared`** are the single source of truth for validation,
-  OpenAPI and (later) frontend types.
