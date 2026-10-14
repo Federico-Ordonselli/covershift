@@ -268,6 +268,20 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
         ) then
           perform app.raise_swap_error('SHIFT_ALREADY_STARTED', 'the shift has already started');
         end if;
+        -- The FK only proves the membership row exists; it may be deactivated.
+        if new.target_user_id is not null and not exists (
+          select 1
+          from app.memberships m
+          where m.organization_id = new.organization_id
+            and m.user_id = new.target_user_id
+            and m.deactivated_at is null
+        ) then
+          perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'the target is not an active member');
+        end if;
+
+        -- Audit timestamps are the database's, whatever the caller sent.
+        new.created_at := now();
+        new.updated_at := now();
         return new;
       end;
       $$`);
@@ -282,7 +296,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
     //   accepted           approved   scheduler who is neither requester nor target
     //   pending|accepted   rejected   scheduler who is neither requester nor target
     //
-    // decided_by_id / decided_at are set here, never by the caller.
+    // decided_by_id / decided_at / updated_at are set here, never by the caller.
     await q.query(`
       create function app.guard_swap_request_update()
       returns trigger
@@ -317,6 +331,8 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           if new.target_user_id is distinct from old.target_user_id then
             perform app.raise_swap_error('SWAP_INVALID_TRANSITION', 'target changes only when claiming');
           end if;
+          -- Nothing changed, so nothing to stamp: a caller-supplied updated_at is discarded.
+          new.updated_at := old.updated_at;
           return new;
         end if;
 
