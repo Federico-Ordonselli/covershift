@@ -6,3 +6,11 @@ packages:
 allowBuilds:
   '@swc/core': true
   '@scarf/scarf': false # install telemetry pulled in by swagger-ui-dist
+
+# nestjs-zod 5.5.0 declares Nest ^10 || ^11; we run Nest 12 (verified, see README "Tech
+# choices"). Scoped to nestjs-zod only. Remove when a release declares Nest 12:
+# https://github.com/BenLorantfy/nestjs-zod/issues/471
+peerDependencyRules:
+  allowedVersions:
+    nestjs-zod>@nestjs/common: '12'
+    nestjs-zod>@nestjs/swagger: '12'

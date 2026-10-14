@@ -155,8 +155,16 @@ pnpm supabase db lint --local --schema app,ops --fail-on error
 
 ## Tech choices worth noting
 
-- **NestJS 11, not 12.** Nest 12 is ESM-only and `nestjs-zod` (the zod → DTO/OpenAPI
-  bridge) does not support it yet. Moving to 12 is a contained follow-up.
+- **NestJS 12 on an undeclared `nestjs-zod` peer.** Nest 12 is ESM-only; the CJS API loads it
+  through Node 24's `require(esm)`. `nestjs-zod` 5.5.0 (the zod → DTO/OpenAPI bridge) still
+  declares `@nestjs/common ^10 || ^11` and `@nestjs/swagger … || ^11`: Nest 12 support is
+  tracked upstream in [nestjs-zod#471](https://github.com/BenLorantfy/nestjs-zod/issues/471)
+  and not released. The upgrade was accepted after checking the production build
+  (`nest build` + `node dist/main.js`): it boots, `/docs-json` is identical to Nest 11's, and
+  a battery of crafted requests (bad tokens, invalid bodies and params, cross-tenant and
+  hidden ids, wrong-role writes and transitions) returns identical status codes and bodies.
+  The exception is explicit in `pnpm-workspace.yaml` (`peerDependencyRules`); remove it once
+  a `nestjs-zod` release declares Nest 12.
 - **TypeORM 1.x**, DataSource API only. `synchronize` is never enabled: the schema is
   owned by migrations.
 - **Vitest + unplugin-swc** instead of Jest: faster, native ESM, and SWC emits the
