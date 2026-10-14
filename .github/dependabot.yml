@@ -6,7 +6,8 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
-    # A dependency joins the FIRST group that matches, so order matters.
+    # Groups must not overlap: Dependabot assigns a dependency to the group it deems most
+    # specific, NOT the first one listed (a pattern-less group won @nestjs/* in practice).
     groups:
       # Nest packages must move together (11 -> 12 is one migration, see README
       # "Tech choices"), so majors are grouped too instead of one PR per package.
@@ -14,6 +15,7 @@ updates:
         patterns: ['@nestjs/*']
         update-types: [major, minor, patch]
       minor-and-patch:
+        exclude-patterns: ['@nestjs/*'] # owned by the nestjs group above
         update-types: [minor, patch]
     # Majors outside the groups (e.g. TypeScript 6) stay one PR each, reviewed on their own.
     ignore:
