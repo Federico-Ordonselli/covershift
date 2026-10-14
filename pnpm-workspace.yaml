@@ -5,6 +5,7 @@ packages:
 # Dependency lifecycle scripts are denied by default; allow only what's needed.
 allowBuilds:
   '@swc/core': true
+  'simple-git-hooks': true # its postinstall installs .git/hooks/pre-commit (scripts/pre-commit.mjs)
   '@scarf/scarf': false # install telemetry pulled in by swagger-ui-dist
 
 # nestjs-zod 5.5.0 declares Nest ^10 || ^11; we run Nest 12 (verified, see README "Tech

@@ -55,6 +55,16 @@ for authentication only; all data goes through the API with the user's access to
 (Supabase URL and publishable key, never the secret key). Public signup is disabled in
 `supabase/config.toml`; accounts come from the seed (later: invitations).
 
+**Auth settings are per environment.** `supabase/config.toml` only configures the _local_
+stack. A hosted Supabase project keeps its own auth settings (dashboard or Management API), so
+phase 4 must set and verify them explicitly: public signup off, email provider on (in the CLI
+config, `[auth.email] enable_signup = false` disables **all** email logins, not just signup),
+JWT expiry, refresh-token rotation, and redirect URLs.
+
+**Pre-commit hook.** `pnpm install` installs a git hook (simple-git-hooks) that runs ESLint and
+Prettier on the staged files and typechecks the packages they touch (`scripts/pre-commit.mjs`).
+CI's gate is the backstop; `--no-verify` bypasses the hook knowingly.
+
 **Security headers.** `apps/web/security-headers.ts` defines the Content-Security-Policy
 (no inline scripts or styles, no `eval`, `connect-src` limited to self and the Supabase URL,
 `frame-ancestors 'none'`) and companion headers. `vite preview` serves them, so the e2e suite
