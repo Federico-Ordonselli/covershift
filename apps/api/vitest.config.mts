@@ -12,6 +12,17 @@ export default defineConfig({
         extends: true,
         test: { name: 'unit', include: ['src/**/*.spec.ts'] },
       },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: ['test/**/*.int.spec.ts'],
+          // One shared local database: run files serially, keep each file isolated by data.
+          fileParallelism: false,
+          testTimeout: 20_000,
+          hookTimeout: 30_000,
+        },
+      },
     ],
   },
 });
