@@ -1,4 +1,5 @@
 import { type Shift } from '@covershift/shared';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
   dayKey,
@@ -10,10 +11,12 @@ import {
   weekFromKey,
 } from '../../lib/time/week';
 import { Alert, ErrorAlert } from '../../ui/Alert';
+import { Button } from '../../ui/Button';
 import { PageHeading } from '../../ui/PageHeading';
 import { Spinner } from '../../ui/Spinner';
 import { useMembers, usePositions } from '../orgs/hooks';
 import { useOrg } from '../orgs/orgContext';
+import { OfferSwapDialog } from '../swaps/OfferSwapDialog';
 import styles from './SchedulePage.module.css';
 import { useWeekShifts, WEEK_MAX_PAGES, WEEK_PAGE_SIZE } from './useWeekShifts';
 
@@ -27,6 +30,10 @@ export function SchedulePage() {
   const shifts = useWeekShifts(org.id, week, view === 'mine' ? userId : undefined);
   const positions = usePositions(org.id);
   const members = useMembers(org.id);
+  const [offering, setOffering] = useState<Shift | null>(null);
+  const [offered, setOffered] = useState<string | null>(null);
+  // Captured once per visit: whether a shift can still be offered (not yet started).
+  const [now] = useState(() => Date.now());
 
   const link = (next: { week?: Week; view?: View }) => {
     const p = new URLSearchParams({ week: (next.week ?? week).key });
@@ -76,6 +83,26 @@ export function SchedulePage() {
         </Alert>
       ) : null}
 
+      <div aria-live="polite">
+        {offered ? (
+          <Alert tone="info" title={offered}>
+            <p>
+              Track it under <Link to={`/orgs/${org.id}/swaps/mine`}>My requests</Link>.
+            </p>
+          </Alert>
+        ) : null}
+      </div>
+      {offering ? (
+        <OfferSwapDialog
+          shift={offering}
+          onClose={() => setOffering(null)}
+          onOffered={(open) => {
+            setOffering(null);
+            setOffered(open ? 'Your open offer is posted.' : 'Your offer was sent.');
+          }}
+        />
+      ) : null}
+
       {shifts.isError ? (
         <ErrorAlert error={shifts.error} onRetry={() => void shifts.refetch()} />
       ) : lookupsError ? (
@@ -106,6 +133,11 @@ export function SchedulePage() {
             'Former member',
           )}
           userId={userId}
+          now={now}
+          onOffer={(shift) => {
+            setOffered(null);
+            setOffering(shift);
+          }}
         />
       )}
     </>
@@ -129,8 +161,10 @@ function WeekGrid(props: {
   positionName: (id: string) => string;
   memberName: (id: string) => string;
   userId: string;
+  now: number;
+  onOffer: (shift: Shift) => void;
 }) {
-  const { week, timeZone, shifts, positionName, memberName, userId } = props;
+  const { week, timeZone, shifts, positionName, memberName, userId, now, onOffer } = props;
   const byDay = new Map<string, Shift[]>();
   for (const shift of shifts) {
     const key = dayKey(shift.startsAt, timeZone);
@@ -169,6 +203,15 @@ function WeekGrid(props: {
                         {shift.assignedUserId ? memberName(shift.assignedUserId) : 'Unassigned'}
                         {mine ? <strong> (you)</strong> : null}
                       </span>
+                      {mine && Date.parse(shift.startsAt) > now ? (
+                        <Button
+                          variant="secondary"
+                          aria-label={`Offer swap: ${positionName(shift.positionId)}, ${formatDay(day)} ${formatTime(shift.startsAt, timeZone)}`}
+                          onClick={() => onOffer(shift)}
+                        >
+                          Offer swap
+                        </Button>
+                      ) : null}
                     </li>
                   );
                 })}

@@ -10,3 +10,14 @@ afterEach(() => {
   cleanup();
 });
 afterAll(() => server.close());
+
+// jsdom has no <dialog> modality. This only toggles `open` so components render; focus
+// trapping and the inert backdrop are real-browser behavior, covered by Playwright.
+if (typeof HTMLDialogElement !== 'undefined' && !HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.removeAttribute('open');
+  };
+}

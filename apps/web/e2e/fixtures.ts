@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Page, test as base } from '@playwright/test';
+import { type BrowserContext, expect, type Page, test as base } from '@playwright/test';
 
 export const PASSWORD = process.env.SEED_PASSWORD ?? 'covershift-demo';
 
@@ -14,37 +14,72 @@ export interface CspViolation {
  * Violations are reported through an exposed binding (survives navigations) from a
  * listener installed before any page script, plus the console as a backstop.
  */
+/**
+ * Records CSP violations on a page: a listener installed before any page script reports
+ * through an exposed binding (survives navigations), with the console as a backstop.
+ */
+async function guardCsp(page: Page): Promise<CspViolation[]> {
+  const violations: CspViolation[] = [];
+  await page.exposeBinding('__reportCspViolation', (_source, v: CspViolation) => {
+    violations.push(v);
+  });
+  await page.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (e) => {
+      (window as unknown as { __reportCspViolation: (v: unknown) => void }).__reportCspViolation({
+        directive: e.effectiveDirective,
+        blocked: e.blockedURI,
+        source: `${e.sourceFile}:${e.lineNumber}`,
+      });
+    });
+  });
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && msg.text().includes('Content Security Policy')) {
+      violations.push({ directive: 'console', blocked: msg.text(), source: 'console' });
+    }
+  });
+  return violations;
+}
+
+/**
+ * Every test runs under the real CSP and fails on any violation it didn't expect, on the
+ * default page and on every extra user page opened with `as(email)`.
+ */
 export const test = base.extend<{
   csp: { violations: CspViolation[]; expectViolations: () => void };
+  as: (email: string) => Promise<Page>;
 }>({
   csp: [
     async ({ page }, use) => {
-      const violations: CspViolation[] = [];
+      const violations = await guardCsp(page);
       let expected = false;
-      await page.exposeBinding('__reportCspViolation', (_source, v: CspViolation) => {
-        violations.push(v);
-      });
-      await page.addInitScript(() => {
-        document.addEventListener('securitypolicyviolation', (e) => {
-          (
-            window as unknown as { __reportCspViolation: (v: unknown) => void }
-          ).__reportCspViolation({
-            directive: e.effectiveDirective,
-            blocked: e.blockedURI,
-            source: `${e.sourceFile}:${e.lineNumber}`,
-          });
-        });
-      });
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && msg.text().includes('Content Security Policy')) {
-          violations.push({ directive: 'console', blocked: msg.text(), source: 'console' });
-        }
-      });
       await use({ violations, expectViolations: () => (expected = true) });
       if (!expected) expect(violations, 'CSP violations').toEqual([]);
     },
     { auto: true },
   ],
+  /** A separate, signed-in browser context per user (several people in one test). */
+  as: async ({ browser, baseURL }, use) => {
+    // Explicit, though @playwright/test would also fill it in: its runner copies the
+    // configured context options (use.baseURL included) into every context created
+    // during a test. Passing it keeps this fixture correct if that ever changes, or if
+    // it's reused outside the test runner. (Codex review of #21; see phase-2 report.)
+    if (!baseURL) throw new Error('as(): use.baseURL must be set in playwright.config.ts');
+    const contexts: BrowserContext[] = [];
+    const violations: CspViolation[] = [];
+    await use(async (email) => {
+      const context = await browser.newContext({ baseURL });
+      contexts.push(context);
+      const page = await context.newPage();
+      const recorded = await guardCsp(page);
+      page.on('close', () => violations.push(...recorded));
+      await page.goto('/login');
+      await signIn(page, email);
+      await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible();
+      return page;
+    });
+    for (const context of contexts) await context.close();
+    expect(violations, 'CSP violations (extra users)').toEqual([]);
+  },
 });
 
 export { expect };
@@ -97,4 +132,34 @@ export async function openOrg(page: Page, name: string): Promise<string> {
   }
   await expect(page.getByLabel('Organization').locator('option:checked')).toHaveText(name);
   return new URL(page.url()).pathname.split('/')[2]!;
+}
+
+export const ZONE = 'Europe/Rome';
+const DAY = 24 * 60 * 60 * 1000;
+
+/** Day `offset` of the seed's week (day 0 = tomorrow, UTC midnight; see seed-data.ts). */
+export function seedDay(offset = 0): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + DAY * (1 + offset),
+  );
+}
+
+export function hoursAfter(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 3_600_000);
+}
+
+/** The schedule's day heading for `date` in the org zone, e.g. "Thu 15 Oct". */
+export function dayHeading(date: Date, timeZone = ZONE): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short', day: 'numeric', month: 'short' })
+      .formatToParts(date)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.weekday} ${parts.day} ${parts.month}`;
+}
+
+/** /orgs/:orgId of the page's current URL. */
+export function orgPath(page: Page): string {
+  return new URL(page.url()).pathname.split('/').slice(0, 3).join('/');
 }

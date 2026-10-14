@@ -1,37 +1,17 @@
 import { SECOND_ORG } from './db';
 import {
+  dayHeading,
   expect,
   expectAccessible,
   LAKESIDE,
   localDate,
   localTime,
   openOrg,
+  seedDay,
   signIn,
   test,
+  ZONE,
 } from './fixtures';
-
-const ZONE = 'Europe/Rome';
-const DAY = 24 * 60 * 60 * 1000;
-
-/** The seed's first shift day: tomorrow, UTC midnight (apps/api/scripts/seed-data.ts). */
-function seedDay(offset = 0): Date {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + DAY * (1 + offset),
-  );
-}
-
-function dayHeading(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: ZONE,
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  })
-    .formatToParts(date)
-    .reduce<Record<string, string>>((acc, p) => ({ ...acc, [p.type]: p.value }), {});
-  return `${parts.weekday} ${parts.day} ${parts.month}`;
-}
 
 test.describe('schedule', () => {
   test('the week shows seeded shifts with position, assignee and local times', async ({ page }) => {

@@ -154,11 +154,11 @@ pnpm --filter @covershift/web e2e         # Playwright on the real stack (seeds 
 | `test/e2e/`                                                   | The real app over HTTP: forged tokens, cross-tenant ids, mass assignment, all five transitions         |
 | `test/lint/`, `test/seed/`                                    | The SQL-interpolation lint rule fires; seeded data satisfies the domain rules                          |
 
-| Suite (`apps/web`)    | What it proves                                                                                                                               |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/**/*.test.ts(x)` | API client (single-flight token refresh, error envelope, contract checks), error-code copy, forms, org layout, schedule, open-redirect guard |
-| `test/msw/`           | Every mocked response is parsed with the shared zod schemas, so mocks can't drift from the API                                               |
-| `e2e/` (Playwright)   | Login, session persistence and expiry, sign-out, schedule in the org's time zone, org switching, CSP and axe (WCAG 2.1 AA) on every run      |
+| Suite (`apps/web`)    | What it proves                                                                                                                                                                                                                                                                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/**/*.test.ts(x)` | API client (single-flight token refresh, error envelope, contract checks), error-code copy, forms, org layout, schedule, open-redirect guard                                                                                                                                                                                                  |
+| `test/msw/`           | Every mocked response is parsed with the shared zod schemas, so mocks can't drift from the API                                                                                                                                                                                                                                                |
+| `e2e/` (Playwright)   | Login, session persistence and expiry, sign-out, schedule in the org's time zone, org switching; **a full swap across three users** (offer → accept → approve → reassigned); a manager's role revoked while the inbox is open (403, reason shown, page turns read-only); the `/inbox` deep-link guard; CSP and axe (WCAG 2.1 AA) on every run |
 
 The suites were checked with **negative controls**: with RLS switched off, a rule removed, or
 token verification disabled, the corresponding tests go red. See the report for details.
