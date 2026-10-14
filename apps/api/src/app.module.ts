@@ -7,6 +7,7 @@ import { ProblemDetailsFilter } from './common/problem-details.filter';
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
+import { OrganizationsModule } from './organizations/organizations.module';
 import { ShiftsModule } from './shifts/shifts.module';
 import { SwapRequestsModule } from './swap-requests/swap-requests.module';
 
@@ -16,6 +17,7 @@ import { SwapRequestsModule } from './swap-requests/swap-requests.module';
     AuthModule,
     DatabaseModule,
     CertificationsModule,
+    OrganizationsModule,
     ShiftsModule,
     SwapRequestsModule,
   ],
