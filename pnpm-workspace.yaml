@@ -10,6 +10,13 @@ allowBuilds:
 # nestjs-zod 5.5.0 declares Nest ^10 || ^11; we run Nest 12 (verified, see README "Tech
 # choices"). Scoped to nestjs-zod only. Remove when a release declares Nest 12:
 # https://github.com/BenLorantfy/nestjs-zod/issues/471
+minimumReleaseAgeExclude:
+  - '@playwright/test@1.64.1'
+  - playwright-core@1.64.1
+  - playwright@1.64.1
+  - react-dom@19.3.1
+  - react@19.3.1
+
 peerDependencyRules:
   allowedVersions:
     nestjs-zod>@nestjs/common: '12'

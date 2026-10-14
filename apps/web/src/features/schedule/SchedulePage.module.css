@@ -1,0 +1,67 @@
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+.group {
+  display: flex;
+  gap: var(--space-3);
+}
+.group a[aria-current='page'] {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--text);
+}
+.range {
+  color: var(--text-muted);
+  margin: 0 0 var(--space-4);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-3);
+}
+.day {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.dayHeading {
+  font-size: 1rem;
+}
+.empty {
+  color: var(--text-muted);
+  margin: 0;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.shift {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.mine {
+  background: var(--mine);
+}
+.time {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.position {
+  font-size: 0.95rem;
+}
+.assignee {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
