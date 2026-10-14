@@ -9,7 +9,7 @@ import {
 } from '@covershift/shared';
 import { type AuthUser } from '../auth/auth-user';
 import { DomainError } from '../common/domain-error';
-import { Organization, Position, Profile } from '../database/entities';
+import { Position, Profile } from '../database/entities';
 import { TxManager } from '../database/rls/tx-manager';
 
 interface OrganizationRow {
@@ -101,9 +101,20 @@ export class OrganizationsService {
     return rows.slice(0, LIST_HARD_CAP);
   }
 
-  /** 404 whether the organization doesn't exist or RLS hides it: deliberately indistinguishable. */
+  /**
+   * 404 whether the organization doesn't exist or the caller isn't an active member:
+   * deliberately indistinguishable. Checks active membership explicitly on top of
+   * organizations RLS, so the answer doesn't hinge on that one policy (each layer, and
+   * each table's own policy, fails closed by itself).
+   */
   private async assertVisible(organizationId: string): Promise<void> {
-    const visible = await this.tx.get().existsBy(Organization, { id: organizationId });
-    if (!visible) throw new DomainError('NOT_FOUND', 'Organization not found', 404);
+    const [row] = await this.tx.get().query<Array<{ visible: boolean }>>(
+      `select exists (
+         select 1 from app.organizations o
+         where o.id = $1 and o.id in (select app.member_org_ids())
+       ) as visible`,
+      [organizationId],
+    );
+    if (!row?.visible) throw new DomainError('NOT_FOUND', 'Organization not found', 404);
   }
 }
