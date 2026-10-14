@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IsoDateTimeSchema, UuidSchema } from './common.js';
+import { IsoDateTimeSchema, TimeZoneSchema, UuidSchema } from './common.js';
 import { MembershipRoleSchema } from './enums.js';
 
 /** An organization as seen by one of its members, with the caller's role in it. */
@@ -8,7 +8,7 @@ export const OrganizationSummarySchema = z.object({
   name: z.string(),
   slug: z.string(),
   /** IANA zone for presenting shifts; timestamps on the wire are always ISO with offset. */
-  timezone: z.string(),
+  timezone: TimeZoneSchema,
   role: MembershipRoleSchema,
 });
 export type OrganizationSummary = z.infer<typeof OrganizationSummarySchema>;

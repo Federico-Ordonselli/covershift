@@ -6,6 +6,18 @@ export const IsoDateTimeSchema = z.iso.datetime({ offset: true });
 export const UuidSchema = z.uuid();
 
 /**
+ * The SHAPE of an IANA time zone name: "Europe/Rome", "America/Argentina/Buenos_Aires",
+ * "Etc/GMT+3", or single names like "UTC", "Japan", "EST5EDT". Whether the zone exists is
+ * the database's call (trigger against pg_timezone_names): clients ship their own tz data
+ * and may lag behind, so they must not reject a real zone they don't know yet; the web UI
+ * shows a visible UTC fallback instead.
+ */
+export const TimeZoneSchema = z
+  .string()
+  .max(64)
+  .regex(/^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/, 'Not an IANA time zone name');
+
+/**
  * Keyset pagination. The cursor is opaque to clients: pass back `nextCursor` verbatim.
  * `nextCursor: null` means there are no more items.
  */
