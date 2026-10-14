@@ -23,6 +23,8 @@ Requirements: Node 24, pnpm (via Corepack), Docker.
 pnpm install
 pnpm db:start   # ES256 signing key on first run, `supabase start`, then writes apps/api/.env
 pnpm db:migrate
+pnpm db:seed    # demo org: 1 manager + 3 staff, positions, a week of shifts, one open swap
+pnpm --filter @covershift/api dev   # API on :3000, OpenAPI UI at /docs
 ```
 
 The Supabase CLI is a pinned devDependency, so no global install is needed.
@@ -32,6 +34,12 @@ the CLI's fixed defaults match GitHub's secret-scanning patterns.
 `supabase/signing_keys.json` is generated locally and git-ignored. Auth signs
 tokens with it, and the API verifies them via the JWKS endpoint
 (`http://127.0.0.1:54321/auth/v1/.well-known/jwks.json`) rather than a shared secret.
+
+The seed is re-runnable: it resets only the demo organization (`lakeside-security`) and
+reuses its users. Log in as `manager@covershift.test`, `sam@…`, `alex@…` or `jo@…` with
+password `covershift-demo` (override with `SEED_PASSWORD`). It refuses to run against a
+non-local Supabase URL. Every seeded assignment satisfies the certification and overlap
+rules, and a test checks that with the API's own eligibility service.
 
 `supabase/migrations` is intentionally unused: the schema is owned by TypeORM
 migrations in `apps/api` (see `docs/adr`). Realtime, Storage, Edge Functions
