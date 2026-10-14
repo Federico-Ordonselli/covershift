@@ -1697,7 +1697,9 @@
                   "type": "string"
                 },
                 "timezone": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(?:\\/[A-Za-z0-9_+-]+)*$"
                 },
                 "role": {
                   "type": "string",
@@ -1742,7 +1744,9 @@
             "type": "string"
           },
           "timezone": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(?:\\/[A-Za-z0-9_+-]+)*$"
           },
           "role": {
             "type": "string",
