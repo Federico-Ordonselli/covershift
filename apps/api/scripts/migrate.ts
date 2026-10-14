@@ -30,10 +30,27 @@ async function main(): Promise<void> {
       console.log(
         applied.length ? `Applied: ${applied.map((m) => m.name).join(', ')}` : 'Up to date',
       );
+      await setApiRolePassword(ds);
     }
   } finally {
     await ds.destroy();
   }
+}
+
+/**
+ * Local/CI convenience: give the API's login role a password from the environment.
+ * Deployed environments manage this credential outside the app (ADR 001).
+ */
+async function setApiRolePassword(ds: DataSource): Promise<void> {
+  const password = process.env.COVERSHIFT_API_DB_PASSWORD;
+  if (!password) return;
+  // DDL can't take bind parameters; format(%L) quotes the literal safely.
+  const [row] = await ds.query<Array<{ sql: string }>>(
+    `select format('alter role covershift_api with password %L', $1::text) as sql`,
+    [password],
+  );
+  await ds.query(row!.sql);
+  console.log('Set covershift_api password from COVERSHIFT_API_DB_PASSWORD');
 }
 
 main().catch((err: unknown) => {
