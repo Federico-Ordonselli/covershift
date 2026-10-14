@@ -162,6 +162,34 @@ jobs:
             apps/web/test-results/
           retention-days: 7
 
+  image:
+    name: Container image (build + Trivy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the API image (same Dockerfile a deploy would push)
+        run: docker build -f apps/api/Dockerfile -t covershift-api:ci .
+
+      - name: Runs as non-root
+        run: test "$(docker image inspect covershift-api:ci --format '{{.Config.User}}')" = nonroot
+
+      # Fixable HIGH/CRITICAL in the OS layer or npm packages fail the build. Unfixed ones
+      # can't be acted on and are reported by the weekly Security run instead.
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: covershift-api:ci
+          version: v0.76.0
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
   gitleaks:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-24.04
@@ -202,7 +230,7 @@ jobs:
   gate:
     name: CI gate
     if: always()
-    needs: [lint, typecheck, unit, integration, e2e, gitleaks, audit]
+    needs: [lint, typecheck, unit, integration, e2e, image, gitleaks, audit]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

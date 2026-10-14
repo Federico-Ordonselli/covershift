@@ -19,7 +19,8 @@
     "db:status": "supabase status",
     "db:migrate": "pnpm --filter @covershift/api db:migrate",
     "db:env": "node scripts/db-env.mjs",
-    "db:seed": "pnpm --filter @covershift/api db:seed"
+    "db:seed": "pnpm --filter @covershift/api db:seed",
+    "docker:smoke": "node scripts/docker-smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,0 +1,15 @@
+# Only what apps/api/Dockerfile copies is needed; keep secrets and build output out.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/test-results
+**/playwright-report
+**/coverage
+.git
+supabase
+docs
+infra
+apps/web/src
+apps/web/e2e
