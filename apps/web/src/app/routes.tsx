@@ -3,7 +3,9 @@ import { LoginPage } from '../features/auth/LoginPage';
 import { NotFoundPage } from '../features/NotFoundPage';
 import { OrgLayout } from '../features/orgs/OrgLayout';
 import { RootRedirect } from '../features/orgs/RootRedirect';
+import { InboxPage } from '../features/inbox/InboxPage';
 import { SchedulePage } from '../features/schedule/SchedulePage';
+import { SwapsPage } from '../features/swaps/SwapsPage';
 import { RequireAuth } from '../lib/auth/RequireAuth';
 
 export const routes: RouteObject[] = [
@@ -18,6 +20,9 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <SchedulePage /> },
           { path: 'schedule', element: <SchedulePage /> },
+          { path: 'swaps', element: <SwapsPage /> },
+          { path: 'swaps/:tab', element: <SwapsPage /> },
+          { path: 'inbox', element: <InboxPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],
       },
