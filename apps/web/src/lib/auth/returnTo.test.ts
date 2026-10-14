@@ -17,7 +17,15 @@ describe('safeReturnTo (open-redirect guard)', () => {
     '/\\evil.example',
     'javascript:alert(1)',
     'orgs/x',
-  ])('falls back to / for %s', (raw) => {
+    // Normalization bypasses (security review): dot segments and encoded dots resolve
+    // to a protocol-relative "//evil.example" after parsing.
+    '/.//evil.example',
+    '/x/..//evil.example',
+    '/%2e//evil.example',
+    '/./\\evil.example',
+    '/\t/evil.example',
+    '/\n/evil.example',
+  ])('falls back to / for %j', (raw) => {
     expect(safeReturnTo(raw)).toBe('/');
   });
 });
