@@ -1,0 +1,7 @@
+# gitleaks configuration: default rules, no allowlist. No key-shaped values are
+# tracked (local Supabase keys come from `supabase status` via `pnpm db:env`).
+title = "covershift"
+
+[extend]
+useDefault = true
+

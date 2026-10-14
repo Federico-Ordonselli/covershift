@@ -1,0 +1,97 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 5 * * 1' # weekly, Monday 05:17 UTC (CodeQL against new queries)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL (javascript-typescript)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload results; only this job may
+      actions: read # read workflow run metadata (needed on private repos)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: /language:javascript-typescript
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # list the PR's commits to scan
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history: a secret removed in a later commit is still leaked
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # automatic, scoped by the permissions above
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: false # would need pull-requests: write
+
+  audit:
+    name: Dependency audit
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Production dependencies, high and critical (blocking)
+        run: pnpm audit --prod --audit-level=high
+      - name: All dependencies, any severity (informational)
+        continue-on-error: true
+        run: pnpm audit
+
+  db-lint:
+    name: Database lint (plpgsql_check)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Start Postgres only
+        run: |
+          pnpm db:keys
+          pnpm supabase start -x gotrue,kong,studio,mailpit,realtime,storage-api,imgproxy,edge-runtime,logflare,vector,postgres-meta,supavisor,postgrest
+      - name: Migrate
+        run: |
+          cp apps/api/.env.example apps/api/.env
+          pnpm db:migrate
+      # Type-checks function bodies (the transition and timestamp triggers, RLS helpers).
+      # RLS performance/hygiene (auth_rls_initplan etc.) is covered by the catalog test in
+      # apps/api/test/rls/policy-hygiene.int.spec.ts, which runs in CI's integration job.
+      - name: supabase db lint (schemas app, ops)
+        run: pnpm supabase db lint --local --schema app,ops --level warning --fail-on error
