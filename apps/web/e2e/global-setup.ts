@@ -7,7 +7,10 @@ import { adminPool, SECOND_ORG } from './db';
  * empty organization where the seeded manager is staff, for the org switcher.
  */
 export default async function globalSetup(): Promise<void> {
-  execFileSync('pnpm', ['db:seed'], { cwd: resolve(import.meta.dirname, '../../..'), stdio: 'inherit' });
+  execFileSync('pnpm', ['db:seed'], {
+    cwd: resolve(import.meta.dirname, '../../..'),
+    stdio: 'inherit',
+  });
 
   const pool = adminPool();
   try {
@@ -23,9 +26,10 @@ export default async function globalSetup(): Promise<void> {
        select $1, id, 'staff' from auth.users where email = 'manager@covershift.test'`,
       [org!.id],
     );
-    await pool.query(`insert into app.positions (organization_id, name) values ($1, 'Berth marshal')`, [
-      org!.id,
-    ]);
+    await pool.query(
+      `insert into app.positions (organization_id, name) values ($1, 'Berth marshal')`,
+      [org!.id],
+    );
   } finally {
     await pool.end();
   }

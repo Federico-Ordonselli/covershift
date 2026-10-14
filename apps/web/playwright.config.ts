@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const CI = !!process.env.CI;
+// The same public values the build uses (written by `pnpm db:env`).
+process.loadEnvFile('.env.local');
 
 /**
  * E2E against the real local stack: Supabase (db, auth, kong), the built API from dist,

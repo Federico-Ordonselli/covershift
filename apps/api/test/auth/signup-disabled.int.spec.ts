@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { env, required } from '../helpers/env';
-import { adminClient } from '../helpers/supabase';
+import { accessToken, adminClient } from '../helpers/supabase';
 
 /**
  * Accounts come from the seed (auth.admin) and later from invitations, never from public
@@ -23,14 +23,21 @@ describe('auth: public signup is disabled', () => {
     expect(list.users.map((u) => u.email)).not.toContain(email);
   });
 
-  it('the seed’s path (auth.admin.createUser with the secret key) still works', async () => {
+  it('admin-created users (the seed’s path) can still sign in with a password', async () => {
+    // Guards the opposite misconfiguration: [auth.email] enable_signup = false looks like
+    // "no email signups" but disables the email provider, i.e. every password login.
     const email = `admin-created-${randomUUID().slice(0, 8)}@covershift.test`;
+    const password = 'a-long-password-123';
     const { data, error } = await adminClient().auth.admin.createUser({
       email,
-      password: 'a-long-password-123',
+      password,
       email_confirm: true,
     });
     expect(error).toBeNull();
-    await adminClient().auth.admin.deleteUser(data.user!.id);
+    try {
+      expect(await accessToken(email, password)).toMatch(/^ey/);
+    } finally {
+      await adminClient().auth.admin.deleteUser(data.user!.id);
+    }
   });
 });

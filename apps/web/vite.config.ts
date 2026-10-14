@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
-import { securityHeaders } from './security-headers';
+import { securityHeaders } from './security-headers.ts';
 
 /**
  * The app calls its API same-origin under /api; Vite proxies that to NestJS (in dev and in
@@ -22,9 +22,10 @@ export default defineConfig(({ mode }) => {
   };
   return {
     plugins: [react()],
-    server: { port: 5173, strictPort: true, proxy },
+    server: { host: '127.0.0.1', port: 5173, strictPort: true, proxy },
     // Preview serves the production build under the real CSP: Playwright runs here.
     preview: {
+      host: '127.0.0.1',
       port: 4173,
       strictPort: true,
       proxy,

@@ -14,7 +14,9 @@ export interface CspViolation {
  * Violations are reported through an exposed binding (survives navigations) from a
  * listener installed before any page script, plus the console as a backstop.
  */
-export const test = base.extend<{ csp: { violations: CspViolation[]; expectViolations: () => void } }>({
+export const test = base.extend<{
+  csp: { violations: CspViolation[]; expectViolations: () => void };
+}>({
   csp: [
     async ({ page }, use) => {
       const violations: CspViolation[] = [];
@@ -24,7 +26,9 @@ export const test = base.extend<{ csp: { violations: CspViolation[]; expectViola
       });
       await page.addInitScript(() => {
         document.addEventListener('securitypolicyviolation', (e) => {
-          (window as unknown as { __reportCspViolation: (v: unknown) => void }).__reportCspViolation({
+          (
+            window as unknown as { __reportCspViolation: (v: unknown) => void }
+          ).__reportCspViolation({
             directive: e.effectiveDirective,
             blocked: e.blockedURI,
             source: `${e.sourceFile}:${e.lineNumber}`,
@@ -47,9 +51,13 @@ export { expect };
 
 /** WCAG 2.1 A/AA checks on the current page; any violation fails the test. */
 export async function expectAccessible(page: Page): Promise<void> {
-  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
   expect(
-    results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(' ')).join(', ')})`),
+    results.violations.map(
+      (v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(' ')).join(', ')})`,
+    ),
   ).toEqual([]);
 }
 
@@ -61,12 +69,32 @@ export async function signIn(page: Page, email: string, password = PASSWORD): Pr
 
 /** The yyyy-MM-dd of `date` in `timeZone`. */
 export function localDate(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
 }
 
 /** HH:mm of `iso` in `timeZone`. */
 export function localTime(iso: string | Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
-    new Date(iso),
-  );
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(iso));
+}
+
+export const LAKESIDE = 'Lakeside International Airport: Security';
+
+/** Selects an organization through the switcher (the first one by name is the default). */
+export async function openOrg(page: Page, name: string): Promise<string> {
+  const select = page.getByLabel('Organization');
+  if ((await select.locator('option:checked').textContent()) !== name) {
+    await select.selectOption({ label: name });
+  }
+  await expect(page.getByLabel('Organization').locator('option:checked')).toHaveText(name);
+  return new URL(page.url()).pathname.split('/')[2]!;
 }

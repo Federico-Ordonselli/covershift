@@ -10,3 +10,5 @@ supabase/.temp
 supabase/signing_keys.json
 .DS_Store
 apps/api/test-results/
+apps/web/test-results/
+apps/web/playwright-report/
