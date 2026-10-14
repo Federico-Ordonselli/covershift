@@ -1,13 +1,17 @@
 import { type MigrationInterface, type QueryRunner } from 'typeorm';
 
 /**
- * Connection role, grants, RLS helper functions and policies. See ADR 001.
+ * Connection role, grants, RLS helper functions, policies and the swap-request state
+ * machine. See ADR 001.
  *
  * Reading guide:
  * - `covershift_api` has no privileges of its own (NOINHERIT). Everything below is granted
  *   to `authenticated`, which the API assumes per transaction with `set local role`.
- * - Grants decide which statements are possible at all; policies decide which rows.
+ * - Grants decide which statements are possible at all; policies decide which rows;
+ *   the swap-request triggers decide which *transitions* are legal (policies can't:
+ *   WITH CHECK only sees the new row, never the old one).
  * - Admin is a superset of manager: every scheduler check passes for both.
+ * - Only *active* memberships (deactivated_at is null) grant anything.
  */
 export class RlsPolicies1791980455094 implements MigrationInterface {
   name = 'RlsPolicies1791980455094';
@@ -35,10 +39,11 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
     await q.query(`grant insert, update, delete on app.shifts to authenticated`);
     // No delete on swap_requests: they are an audit trail, terminal states are kept.
     await q.query(`grant insert on app.swap_requests to authenticated`);
-    // Column-level: nobody can rewrite which shift, org or requester a request belongs to.
-    await q.query(`
-      grant update (status, target_user_id, decided_by_id, decided_at, updated_at)
-        on app.swap_requests to authenticated`);
+    // Column-level: callers may only move status and (when claiming) the target.
+    // decided_by_id / decided_at are written by the transition trigger, never by callers.
+    await q.query(
+      `grant update (status, target_user_id, updated_at) on app.swap_requests to authenticated`,
+    );
     await q.query(`grant update (full_name, updated_at) on app.profiles to authenticated`);
 
     // ---------------------------------------------------------------- helpers
@@ -58,6 +63,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           from app.memberships m
           where m.organization_id = org_id
             and m.user_id = (select auth.uid())
+            and m.deactivated_at is null
         )
       $$`);
 
@@ -74,11 +80,13 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           from app.memberships m
           where m.organization_id = org_id
             and m.user_id = (select auth.uid())
+            and m.deactivated_at is null
             and m.role = any (roles)
         )
       $$`);
 
-    // Coworker visibility for profiles: the caller and `other_user` share at least one org.
+    // Coworker visibility for profiles: the caller (active) and other_user share an org.
+    // other_user may be deactivated, so names in shift/swap history stay readable.
     await q.query(`
       create function app.shares_org(other_user uuid)
       returns boolean
@@ -92,6 +100,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           from app.memberships me
           join app.memberships them on them.organization_id = me.organization_id
           where me.user_id = (select auth.uid())
+            and me.deactivated_at is null
             and them.user_id = other_user
         )
       $$`);
@@ -142,7 +151,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
       create policy user_certifications_select_self_or_scheduler on app.user_certifications
         for select to authenticated
         using (
-          user_id = (select auth.uid())
+          (user_id = (select auth.uid()) and app.is_member(organization_id))
           or app.has_role(organization_id, '{admin,manager}')
         )`);
 
@@ -166,7 +175,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
         for delete to authenticated
         using (app.has_role(organization_id, '{admin,manager}'))`);
 
-    // ---------------------------------------------------------------- swap_requests
+    // ---------------------------------------------------------------- swap_requests: policies
     await q.query(`
       create policy swap_requests_select_member on app.swap_requests
         for select to authenticated
@@ -179,9 +188,7 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
         for insert to authenticated
         with check (
           requester_id = (select auth.uid())
-          and status = 'pending'
-          and decided_by_id is null
-          and decided_at is null
+          and app.is_member(organization_id)
           and exists (
             select 1
             from app.shifts s
@@ -191,65 +198,265 @@ export class RlsPolicies1791980455094 implements MigrationInterface {
           )
         )`);
 
-    // Update policies are narrow per actor. Postgres ORs permissive policies and checks
-    // USING and WITH CHECK independently (the new row may pass a different policy's check
-    // than the one whose USING matched), so each WITH CHECK must be safe on its own:
-    // staff-reachable checks pin the actor column to auth.uid(), allow only that actor's
-    // target statuses, and forbid decision fields. 'approved'/'rejected' pass only the
-    // scheduler policy.
-
-    // Requester withdraws: pending|accepted -> cancelled.
+    // A single update policy: which rows an actor may *touch*. Which transitions are legal
+    // for that actor is the trigger's job. (Per-actor WITH CHECKs were tried and are unsound:
+    // Postgres ORs permissive policies and evaluates USING and WITH CHECK independently, so
+    // a claimer's USING combined with a target's WITH CHECK let any member decline an open
+    // offer.)
     await q.query(`
-      create policy swap_requests_update_requester_cancel on app.swap_requests
-        for update to authenticated
-        using (requester_id = (select auth.uid()) and status in ('pending', 'accepted'))
-        with check (
-          requester_id = (select auth.uid())
-          and status = 'cancelled'
-          and decided_by_id is null
-        )`);
-
-    // Direct target responds: pending -> accepted|declined.
-    await q.query(`
-      create policy swap_requests_update_target_respond on app.swap_requests
-        for update to authenticated
-        using (target_user_id = (select auth.uid()) and status = 'pending')
-        with check (
-          target_user_id = (select auth.uid())
-          and status in ('accepted', 'declined')
-          and decided_by_id is null
-        )`);
-
-    // Any other member claims an open offer: pending (target null) -> accepted (target = me).
-    await q.query(`
-      create policy swap_requests_update_claim_open_offer on app.swap_requests
+      create policy swap_requests_update_participant_or_scheduler on app.swap_requests
         for update to authenticated
         using (
-          target_user_id is null
-          and status = 'pending'
-          and requester_id <> (select auth.uid())
-          and app.is_member(organization_id)
+          app.is_member(organization_id)
+          and (
+            requester_id = (select auth.uid())
+            or target_user_id = (select auth.uid())
+            or target_user_id is null
+            or app.has_role(organization_id, '{admin,manager}')
+          )
         )
-        with check (
-          target_user_id = (select auth.uid())
-          and status = 'accepted'
-          and decided_by_id is null
-        )`);
+        with check (app.is_member(organization_id))`);
 
-    // Managers/admins decide (approve/reject). Transition validity lives in the service.
+    // ---------------------------------------------------------------- swap_requests: state machine
+    // Errors use a dedicated SQLSTATE, CS409, with message '<ERROR_CODE>: <reason>'. The API
+    // maps CS409 to HTTP 409 and passes code and reason through.
     await q.query(`
-      create policy swap_requests_update_scheduler on app.swap_requests
-        for update to authenticated
-        using (app.has_role(organization_id, '{admin,manager}'))
-        with check (app.has_role(organization_id, '{admin,manager}'))`);
+      create function app.raise_swap_error(code text, reason text)
+      returns void
+      language plpgsql
+      set search_path = ''
+      as $$
+      begin
+        raise exception using errcode = 'CS409', message = code || ': ' || reason;
+      end;
+      $$`);
+
+    // Roles allowed to bypass the state machine: migrations, seed and Supabase internals.
+    // An allowlist, not a denylist: any other role (authenticated, service_role, roles
+    // added later) is held to the rules. Fail closed.
+    await q.query(`
+      create function app.is_maintenance_role()
+      returns boolean
+      language sql
+      stable
+      set search_path = ''
+      as $$
+        select current_user in ('postgres', 'supabase_admin')
+      $$`);
+
+    await q.query(`
+      create function app.guard_swap_request_insert()
+      returns trigger
+      language plpgsql
+      set search_path = ''
+      as $$
+      declare
+        actor uuid := (select auth.uid());
+      begin
+        if app.is_maintenance_role() then
+          return new;
+        end if;
+
+        if actor is null or new.requester_id is distinct from actor then
+          perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'requests are created by their requester');
+        end if;
+        if new.status <> 'pending' or new.decided_by_id is not null or new.decided_at is not null then
+          perform app.raise_swap_error('SWAP_INVALID_TRANSITION', 'new requests start as pending and undecided');
+        end if;
+        if exists (
+          select 1 from app.shifts s where s.id = new.shift_id and s.starts_at <= now()
+        ) then
+          perform app.raise_swap_error('SHIFT_ALREADY_STARTED', 'the shift has already started');
+        end if;
+        return new;
+      end;
+      $$`);
+
+    // Transition table (actor is auth.uid(); "scheduler" = active manager/admin of the org):
+    //
+    //   from               to         actor
+    //   pending|accepted   cancelled  requester
+    //   pending            declined   direct target
+    //   pending            accepted   direct target, or any other member claiming an open offer
+    //                                 (target_user_id becomes the claimer)
+    //   accepted           approved   scheduler who is neither requester nor target
+    //   pending|accepted   rejected   scheduler who is neither requester nor target
+    //
+    // decided_by_id / decided_at are set here, never by the caller.
+    await q.query(`
+      create function app.guard_swap_request_update()
+      returns trigger
+      language plpgsql
+      set search_path = ''
+      as $$
+      declare
+        actor uuid := (select auth.uid());
+      begin
+        if app.is_maintenance_role() then
+          return new;
+        end if;
+
+        if actor is null then
+          perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'no authenticated user');
+        end if;
+
+        -- Columns that never change after creation (grants already stop authenticated;
+        -- this holds the line for any other non-maintenance role).
+        if (new.id, new.organization_id, new.shift_id, new.requester_id, new.note, new.created_at)
+           is distinct from
+           (old.id, old.organization_id, old.shift_id, old.requester_id, old.note, old.created_at) then
+          perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'only status and target can change');
+        end if;
+
+        if new.decided_by_id is distinct from old.decided_by_id
+           or new.decided_at is distinct from old.decided_at then
+          perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'decision fields are set by the database');
+        end if;
+
+        if new.status = old.status then
+          if new.target_user_id is distinct from old.target_user_id then
+            perform app.raise_swap_error('SWAP_INVALID_TRANSITION', 'target changes only when claiming');
+          end if;
+          return new;
+        end if;
+
+        if old.status not in ('pending', 'accepted') then
+          perform app.raise_swap_error('SWAP_INVALID_TRANSITION', format('request is already %s', old.status));
+        end if;
+
+        -- Claiming an open offer is the only transition that may set the target.
+        if new.target_user_id is distinct from old.target_user_id
+           and not (old.target_user_id is null and new.status = 'accepted') then
+          perform app.raise_swap_error('SWAP_INVALID_TRANSITION', 'target changes only when claiming');
+        end if;
+
+        case new.status
+          when 'cancelled' then
+            if actor <> old.requester_id then
+              perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'only the requester can cancel');
+            end if;
+
+          when 'declined' then
+            if old.status <> 'pending' or old.target_user_id is null or actor <> old.target_user_id then
+              perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'only the target of a direct offer can decline it');
+            end if;
+
+          when 'accepted' then
+            if old.status <> 'pending' then
+              perform app.raise_swap_error('SWAP_INVALID_TRANSITION', format('cannot accept a %s request', old.status));
+            end if;
+            if old.target_user_id is null then
+              if actor = old.requester_id then
+                perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'cannot claim your own offer');
+              end if;
+              if new.target_user_id is distinct from actor then
+                perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'a claim assigns the offer to the claimer');
+              end if;
+            elsif actor <> old.target_user_id then
+              perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'only the target can accept');
+            end if;
+
+          when 'approved', 'rejected' then
+            if not app.has_role(old.organization_id, '{admin,manager}') then
+              perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'only managers or admins can decide');
+            end if;
+            if new.status = 'approved' and old.status <> 'accepted' then
+              perform app.raise_swap_error('SWAP_INVALID_TRANSITION', 'only accepted requests can be approved');
+            end if;
+            if actor = old.requester_id or actor = old.target_user_id then
+              perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'the decider cannot be the requester or the target');
+            end if;
+            new.decided_by_id := actor;
+            new.decided_at := now();
+
+          else
+            perform app.raise_swap_error('SWAP_INVALID_TRANSITION', format('cannot move to %s', new.status));
+        end case;
+
+        if new.status in ('accepted', 'approved') then
+          if exists (
+            select 1 from app.shifts s where s.id = old.shift_id and s.starts_at <= now()
+          ) then
+            perform app.raise_swap_error('SHIFT_ALREADY_STARTED', 'the shift has already started');
+          end if;
+          if not exists (
+            select 1
+            from app.memberships m
+            where m.organization_id = old.organization_id
+              and m.user_id = new.target_user_id
+              and m.deactivated_at is null
+          ) then
+            perform app.raise_swap_error('SWAP_NOT_ALLOWED', 'the target is not an active member');
+          end if;
+        end if;
+
+        new.updated_at := now();
+        return new;
+      end;
+      $$`);
+
+    // Approval reassigns the shift in the same statement, so the exclusion constraint and
+    // the membership FK on shifts are checked atomically with the approval. Runs as the
+    // approving manager: the shifts RLS update policy applies too.
+    await q.query(`
+      create function app.apply_approved_swap()
+      returns trigger
+      language plpgsql
+      set search_path = ''
+      as $$
+      begin
+        update app.shifts
+           set assigned_user_id = new.target_user_id,
+               updated_at = now()
+         where id = new.shift_id
+           and organization_id = new.organization_id
+           and assigned_user_id = new.requester_id;
+        if not found then
+          perform app.raise_swap_error('SWAP_CONFLICT', 'the shift is no longer assigned to the requester');
+        end if;
+        return null;
+      end;
+      $$`);
+
+    for (const fn of [
+      'app.raise_swap_error(text, text)',
+      'app.is_maintenance_role()',
+      'app.guard_swap_request_insert()',
+      'app.guard_swap_request_update()',
+      'app.apply_approved_swap()',
+    ]) {
+      await q.query(`revoke execute on function ${fn} from public, anon`);
+      await q.query(`grant execute on function ${fn} to authenticated`);
+    }
+
+    await q.query(`
+      create trigger swap_requests_guard_insert
+        before insert on app.swap_requests
+        for each row execute function app.guard_swap_request_insert()`);
+    await q.query(`
+      create trigger swap_requests_guard_update
+        before update on app.swap_requests
+        for each row execute function app.guard_swap_request_update()`);
+    await q.query(`
+      create trigger swap_requests_apply_approval
+        after update of status on app.swap_requests
+        for each row
+        when (new.status = 'approved' and old.status is distinct from 'approved')
+        execute function app.apply_approved_swap()`);
   }
 
   async down(q: QueryRunner): Promise<void> {
+    await q.query(`drop trigger swap_requests_apply_approval on app.swap_requests`);
+    await q.query(`drop trigger swap_requests_guard_update on app.swap_requests`);
+    await q.query(`drop trigger swap_requests_guard_insert on app.swap_requests`);
+    await q.query(`drop function app.apply_approved_swap()`);
+    await q.query(`drop function app.guard_swap_request_update()`);
+    await q.query(`drop function app.guard_swap_request_insert()`);
+    await q.query(`drop function app.is_maintenance_role()`);
+    await q.query(`drop function app.raise_swap_error(text, text)`);
+
     const policies: Array<[string, string]> = [
-      ['swap_requests', 'swap_requests_update_scheduler'],
-      ['swap_requests', 'swap_requests_update_claim_open_offer'],
-      ['swap_requests', 'swap_requests_update_target_respond'],
-      ['swap_requests', 'swap_requests_update_requester_cancel'],
+      ['swap_requests', 'swap_requests_update_participant_or_scheduler'],
       ['swap_requests', 'swap_requests_insert_own_shift'],
       ['swap_requests', 'swap_requests_select_member'],
       ['shifts', 'shifts_delete_scheduler'],

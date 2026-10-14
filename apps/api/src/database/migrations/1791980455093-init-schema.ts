@@ -53,8 +53,12 @@ export class InitSchema1791980455093 implements MigrationInterface {
         organization_id  uuid not null references app.organizations (id) on delete cascade,
         user_id          uuid not null references app.profiles (id) on delete cascade,
         role             app.membership_role not null,
+        -- Soft delete. A deactivated member loses all access immediately (RLS helpers
+        -- count only active memberships) while their shift/swap history stays intact.
+        deactivated_at   timestamptz,
         created_at       timestamptz not null default now(),
-        -- one membership per user per org; also the target of every "is a member" FK below
+        -- one membership per user per org (reactivation clears deactivated_at);
+        -- also the target of every "is a member" FK below
         constraint memberships_organization_user_key unique (organization_id, user_id)
       )`);
     // RLS helpers look memberships up by user on every query.
@@ -128,8 +132,14 @@ export class InitSchema1791980455093 implements MigrationInterface {
         updated_at        timestamptz not null default now(),
         constraint shifts_time_order_check check (ends_at > starts_at),
         constraint shifts_id_organization_key unique (id, organization_id),
+        -- Deferred NO ACTION, not RESTRICT: when an organization is deleted, positions and
+        -- shifts are removed by separate cascades whose order isn't guaranteed. RESTRICT (and
+        -- even immediate NO ACTION, checked at the end of each cascaded statement) can fire
+        -- before the sibling cascade has run. Deferring to commit lets org deletion
+        -- cascade cleanly, while deleting a position that still has shifts still fails.
         foreign key (position_id, organization_id)
-          references app.positions (id, organization_id) on delete restrict,
+          references app.positions (id, organization_id)
+          deferrable initially deferred,
         -- the assignee must be a member of the shift's org; leaving the org unassigns
         -- (MATCH SIMPLE: not checked while assigned_user_id is null)
         foreign key (organization_id, assigned_user_id)
@@ -163,15 +173,27 @@ export class InitSchema1791980455093 implements MigrationInterface {
         updated_at       timestamptz not null default now(),
         foreign key (shift_id, organization_id)
           references app.shifts (id, organization_id) on delete cascade,
-        -- restrict: a membership with swap history can't silently erase the audit trail
+        -- Deferred NO ACTION (see shifts.position_id): hard-deleting a membership with swap
+        -- history fails at commit, so the audit trail survives; deleting the whole
+        -- organization still cascades. Members leave by soft delete
+        -- (memberships.deactivated_at), see ADR 001.
         foreign key (organization_id, requester_id)
-          references app.memberships (organization_id, user_id) on delete restrict,
+          references app.memberships (organization_id, user_id)
+          deferrable initially deferred,
         foreign key (organization_id, target_user_id)
-          references app.memberships (organization_id, user_id) on delete restrict,
+          references app.memberships (organization_id, user_id)
+          deferrable initially deferred,
         constraint swap_requests_not_self_check
           check (target_user_id is null or target_user_id <> requester_id),
         constraint swap_requests_decision_check
-          check (status not in ('approved', 'rejected') or decided_at is not null)
+          check (status not in ('approved', 'rejected') or decided_at is not null),
+        -- Whoever approves/rejects is neither side of the swap. Also enforced by the
+        -- transition trigger (readable error); this is the backstop.
+        constraint swap_requests_decider_not_participant_check
+          check (
+            decided_by_id is null
+            or (decided_by_id <> requester_id and decided_by_id is distinct from target_user_id)
+          )
       )`);
     // At most one in-flight request per shift. Doubles as the race guard for creation.
     await q.query(`

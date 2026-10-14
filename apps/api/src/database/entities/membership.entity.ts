@@ -15,6 +15,10 @@ export class Membership {
   @Column({ type: 'enum', enum: MEMBERSHIP_ROLES, enumName: 'membership_role' })
   role: MembershipRole;
 
+  /** Soft delete: non-null = no longer a member (no access), history kept. */
+  @Column({ name: 'deactivated_at', type: 'timestamptz', nullable: true })
+  deactivatedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
