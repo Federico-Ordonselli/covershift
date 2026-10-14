@@ -21,10 +21,14 @@ Requirements: Node 24, pnpm (via Corepack), Docker.
 
 ```sh
 pnpm install
-pnpm db:start   # generates an ES256 JWT signing key on first run, then `supabase start`
+pnpm db:start   # ES256 signing key on first run, `supabase start`, then writes apps/api/.env
+pnpm db:migrate
 ```
 
 The Supabase CLI is a pinned devDependency, so no global install is needed.
+`pnpm db:env` (run by `db:start`) writes `apps/api/.env` from `apps/api/.env.example` plus the
+running stack's URLs and API keys (`supabase status`). Local keys are never committed: even
+the CLI's fixed defaults match GitHub's secret-scanning patterns.
 `supabase/signing_keys.json` is generated locally and git-ignored. Auth signs
 tokens with it, and the API verifies them via the JWKS endpoint
 (`http://127.0.0.1:54321/auth/v1/.well-known/jwks.json`) rather than a shared secret.
@@ -47,7 +51,7 @@ Phase 1 uses no repository secrets.
 | **Integration tests** (real Supabase: db, auth, kong)             | **Tenant isolation and swap rules through the real RLS role**, JWKS against real GoTrue, commit-time errors, migration down/up round-trip           | Behaviour behind HTTP (covered by e2e tests from commit 15), load/perf                                              |
 | ↳ **Policy catalog test** (`test/rls/policy-hygiene.int.spec.ts`) | Unwrapped `auth.uid()`/helper calls in policies (Supabase `auth_rls_initplan`), tables without RLS, `SECURITY DEFINER` without pinned `search_path` | Whether a policy's _logic_ is right (that's the RLS suites' job)                                                    |
 | **CodeQL** (`security.yml`, also weekly)                          | Injection, unsafe deserialization, path traversal and similar patterns in TS                                                                        | **RLS or authorization logic bugs**: it can't reason about policies or triggers. The RLS suites and catalog test do |
-| **gitleaks** (full history)                                       | Committed credentials (default rules, no allowlist: no key-shaped values are tracked)                                                     | Secrets outside git (CI logs, env), or ones in formats no rule recognises                                           |
+| **gitleaks** (full history)                                       | Committed credentials (default rules, no allowlist: no key-shaped values are tracked)                                                               | Secrets outside git (CI logs, env), or ones in formats no rule recognises                                           |
 | **pnpm audit**                                                    | Known advisories: high/critical in prod deps block, everything else is reported                                                                     | Unknown vulnerabilities, malicious-but-unreported packages, vulnerable code paths you don't actually use            |
 | **supabase db lint** (plpgsql_check on `app`, `ops`)              | Broken PL/pgSQL: unknown columns/types in triggers and helpers                                                                                      | Logic errors in correct-looking functions; SQL-language functions and policies (catalog test + RLS suites)          |
 | **Dependabot** (weekly)                                           | Outdated npm packages and pinned actions                                                                                                            | Anything it can't open a PR for (e.g. a breaking major you haven't reviewed)                                        |

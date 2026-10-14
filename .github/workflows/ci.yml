@@ -77,18 +77,8 @@ jobs:
           pnpm supabase start -x "$SUPABASE_EXCLUDE"
           echo "SUPABASE_STARTUP_SECONDS=$(( $(date +%s) - started ))" >> "$GITHUB_ENV"
 
-      - name: Configure test environment from the running stack
-        run: |
-          # Defaults (covershift_api URL and local role password) come from .env.example;
-          # endpoints and keys come from the stack itself rather than hard-coded values.
-          cp apps/api/.env.example apps/api/.env
-          eval "$(pnpm -s supabase status -o env)"
-          {
-            echo "SUPABASE_URL=$API_URL"
-            echo "DATABASE_MIGRATION_URL=$DB_URL"
-            echo "SUPABASE_PUBLISHABLE_KEY=$PUBLISHABLE_KEY"
-            echo "SUPABASE_SECRET_KEY=$SECRET_KEY"
-          } >> "$GITHUB_ENV"
+      - name: Configure apps/api/.env from the running stack
+        run: pnpm db:env # same script as local dev; no keys are committed
 
       - name: Migrate (privileged URL)
         run: pnpm db:migrate

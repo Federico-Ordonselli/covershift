@@ -14,10 +14,11 @@
     "format:check": "prettier --check .",
     "test": "pnpm -r test",
     "db:keys": "test -f supabase/signing_keys.json || (echo [] > supabase/signing_keys.json && supabase gen signing-key --algorithm ES256 --append --yes)",
-    "db:start": "pnpm db:keys && supabase start",
+    "db:start": "pnpm db:keys && supabase start && pnpm db:env",
     "db:stop": "supabase stop",
     "db:status": "supabase status",
-    "db:migrate": "pnpm --filter @covershift/api db:migrate"
+    "db:migrate": "pnpm --filter @covershift/api db:migrate",
+    "db:env": "node scripts/db-env.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
