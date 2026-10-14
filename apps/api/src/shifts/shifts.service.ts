@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { type CreateShift, type ListShiftsQuery, type UpdateShift } from '@covershift/shared';
+import {
+  type CreateShift,
+  type ListShiftsQuery,
+  type Page,
+  type UpdateShift,
+} from '@covershift/shared';
 import { type QueryDeepPartialEntity } from 'typeorm';
+import { CURSOR_KEY_SQL_FORMAT, decodeCursor, toPage } from '../common/cursor';
 import { CertificationEligibilityService } from '../certifications/certification-eligibility.service';
 import { DomainError } from '../common/domain-error';
 import { Position, Shift, SwapRequest } from '../database/entities';
@@ -31,8 +37,16 @@ export class ShiftsService {
     private readonly eligibility: CertificationEligibilityService,
   ) {}
 
-  async list(query: ListShiftsQuery): Promise<Shift[]> {
-    const qb = this.tx.get().createQueryBuilder(Shift, 's').orderBy('s.startsAt', 'ASC');
+  /** Ordered by (starts_at, id); keyset-paginated, see common/cursor.ts. */
+  async list(query: ListShiftsQuery): Promise<Page<Shift>> {
+    const qb = this.tx
+      .get()
+      .createQueryBuilder(Shift, 's')
+      .addSelect(`to_char(s.starts_at at time zone 'UTC', :keyFormat)`, 'cursor_key')
+      .setParameter('keyFormat', CURSOR_KEY_SQL_FORMAT)
+      .orderBy('s.starts_at', 'ASC')
+      .addOrderBy('s.id', 'ASC')
+      .limit(query.limit + 1);
     if (query.organizationId) {
       qb.andWhere('s.organization_id = :org', { org: query.organizationId });
     }
@@ -42,7 +56,19 @@ export class ShiftsService {
     // Window filter: shifts overlapping [from, to).
     if (query.from) qb.andWhere('s.ends_at > :from', { from: query.from });
     if (query.to) qb.andWhere('s.starts_at < :to', { to: query.to });
-    return qb.getMany();
+    if (query.cursor) {
+      const after = decodeCursor(query.cursor);
+      qb.andWhere(
+        '(s.starts_at, s.id) > (cast(:afterKey as timestamptz), cast(:afterId as uuid))',
+        { afterKey: after.key, afterId: after.id },
+      );
+    }
+    const { entities, raw } = await qb.getRawAndEntities<{ cursor_key: string }>();
+    return toPage(
+      entities,
+      raw.map((r) => r.cursor_key),
+      query.limit,
+    );
   }
 
   /** 404 whether the shift doesn't exist or RLS hides it: deliberately indistinguishable. */

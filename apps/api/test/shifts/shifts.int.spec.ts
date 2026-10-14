@@ -164,12 +164,12 @@ describe('ShiftsService (real RLS)', () => {
   describe('read', () => {
     it('lists only the caller’s organizations, with window filters', async () => {
       await insertShift(admin, b, day(5));
-      const listed = await as('certified', (s) => s.list({}));
+      const { items: listed } = await as('certified', (s) => s.list({ limit: 100 }));
       expect(listed.length).toBeGreaterThan(0);
       expect(new Set(listed.map((x) => x.organizationId))).toEqual(new Set([a.orgId]));
 
-      const day4 = await as('certified', (s) =>
-        s.list({ from: '2030-08-04T00:00:00Z', to: '2030-08-05T00:00:00Z' }),
+      const { items: day4 } = await as('certified', (s) =>
+        s.list({ limit: 100, from: '2030-08-04T00:00:00Z', to: '2030-08-05T00:00:00Z' }),
       );
       expect(day4.every((x) => x.startsAt < new Date('2030-08-05T00:00:00Z'))).toBe(true);
       expect(day4).toHaveLength(2);

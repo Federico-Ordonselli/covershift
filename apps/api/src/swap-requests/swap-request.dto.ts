@@ -1,6 +1,7 @@
 import {
   CreateSwapRequestSchema,
   ListSwapRequestsQuerySchema,
+  SwapRequestPageSchema,
   SwapRequestSchema,
 } from '@covershift/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -9,6 +10,7 @@ import { type SwapRequest } from '../database/entities';
 export class CreateSwapRequestDto extends createZodDto(CreateSwapRequestSchema) {}
 export class ListSwapRequestsQueryDto extends createZodDto(ListSwapRequestsQuerySchema) {}
 export class SwapRequestDto extends createZodDto(SwapRequestSchema) {}
+export class SwapRequestPageDto extends createZodDto(SwapRequestPageSchema) {}
 
 export function toSwapRequestDto(swap: SwapRequest): SwapRequestDto {
   return {

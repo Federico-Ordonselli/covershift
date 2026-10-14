@@ -3,9 +3,11 @@ import {
   ACTIVE_SWAP_REQUEST_STATUSES,
   type CreateSwapRequest,
   type ListSwapRequestsQuery,
+  type Page,
   type SwapRequestStatus,
 } from '@covershift/shared';
 import { In } from 'typeorm';
+import { CURSOR_KEY_SQL_FORMAT, decodeCursor, toPage } from '../common/cursor';
 import { DomainError } from '../common/domain-error';
 import { SwapRequest } from '../database/entities';
 import { TxManager } from '../database/rls/tx-manager';
@@ -29,15 +31,42 @@ export class SwapRequestsService {
     private readonly shifts: ShiftsService,
   ) {}
 
-  async list(query: ListSwapRequestsQuery): Promise<SwapRequest[]> {
-    return this.tx.get().find(SwapRequest, {
-      where: {
-        ...(query.organizationId && { organizationId: query.organizationId }),
-        ...(query.shiftId && { shiftId: query.shiftId }),
-        ...(query.status && { status: query.status }),
-      },
-      order: { createdAt: 'DESC' },
-    });
+  /** Newest first, ordered by (created_at, id); keyset-paginated, see common/cursor.ts. */
+  async list(query: ListSwapRequestsQuery): Promise<Page<SwapRequest>> {
+    const qb = this.tx
+      .get()
+      .createQueryBuilder(SwapRequest, 'sr')
+      .addSelect(`to_char(sr.created_at at time zone 'UTC', :keyFormat)`, 'cursor_key')
+      .setParameter('keyFormat', CURSOR_KEY_SQL_FORMAT)
+      .orderBy('sr.created_at', 'DESC')
+      .addOrderBy('sr.id', 'DESC')
+      .limit(query.limit + 1);
+    if (query.organizationId) {
+      qb.andWhere('sr.organization_id = :org', { org: query.organizationId });
+    }
+    if (query.shiftId) qb.andWhere('sr.shift_id = :shift', { shift: query.shiftId });
+    if (query.status) qb.andWhere('sr.status = :status', { status: query.status });
+    if (query.requesterId) {
+      qb.andWhere('sr.requester_id = :requester', { requester: query.requesterId });
+    }
+    if (query.targetUserId) {
+      qb.andWhere('sr.target_user_id = :target', { target: query.targetUserId });
+    }
+    if (query.open === true) qb.andWhere('sr.target_user_id is null');
+    if (query.open === false) qb.andWhere('sr.target_user_id is not null');
+    if (query.cursor) {
+      const after = decodeCursor(query.cursor);
+      qb.andWhere(
+        '(sr.created_at, sr.id) < (cast(:afterKey as timestamptz), cast(:afterId as uuid))',
+        { afterKey: after.key, afterId: after.id },
+      );
+    }
+    const { entities, raw } = await qb.getRawAndEntities<{ cursor_key: string }>();
+    return toPage(
+      entities,
+      raw.map((r) => r.cursor_key),
+      query.limit,
+    );
   }
 
   async get(id: string): Promise<SwapRequest> {

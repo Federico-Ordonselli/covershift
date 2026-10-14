@@ -7,6 +7,7 @@ import {
   CreateSwapRequestDto,
   ListSwapRequestsQueryDto,
   SwapRequestDto,
+  SwapRequestPageDto,
   toSwapRequestDto,
 } from './swap-request.dto';
 import { SwapRequestsService } from './swap-requests.service';
@@ -23,10 +24,12 @@ import { SwapRequestsService } from './swap-requests.service';
 export class SwapRequestsController {
   constructor(private readonly swaps: SwapRequestsService) {}
 
+  /** Newest first. Visible to members of the request's organization (RLS-scoped). */
   @Get()
-  @ZodResponse({ type: [SwapRequestDto] })
+  @ZodResponse({ type: SwapRequestPageDto })
   async list(@Query() query: ListSwapRequestsQueryDto) {
-    return (await this.swaps.list(query)).map(toSwapRequestDto);
+    const page = await this.swaps.list(query);
+    return { items: page.items.map(toSwapRequestDto), nextCursor: page.nextCursor };
   }
 
   @Get(':id')

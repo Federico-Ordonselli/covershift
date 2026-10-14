@@ -1,6 +1,7 @@
 import {
   CreateShiftSchema,
   ListShiftsQuerySchema,
+  ShiftPageSchema,
   ShiftSchema,
   UpdateShiftSchema,
 } from '@covershift/shared';
@@ -11,6 +12,7 @@ export class CreateShiftDto extends createZodDto(CreateShiftSchema) {}
 export class UpdateShiftDto extends createZodDto(UpdateShiftSchema) {}
 export class ListShiftsQueryDto extends createZodDto(ListShiftsQuerySchema) {}
 export class ShiftDto extends createZodDto(ShiftSchema) {}
+export class ShiftPageDto extends createZodDto(ShiftPageSchema) {}
 
 export function toShiftDto(shift: Shift): ShiftDto {
   return {

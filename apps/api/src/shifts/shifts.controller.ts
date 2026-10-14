@@ -16,6 +16,7 @@ import {
   CreateShiftDto,
   ListShiftsQueryDto,
   ShiftDto,
+  ShiftPageDto,
   toShiftDto,
   UpdateShiftDto,
 } from './shift.dto';
@@ -27,11 +28,12 @@ import { ShiftsService } from './shifts.service';
 export class ShiftsController {
   constructor(private readonly shifts: ShiftsService) {}
 
-  /** Shifts in the caller's organizations (RLS-scoped), optionally filtered. */
+  /** Shifts in the caller's organizations (RLS-scoped), optionally filtered, by start time. */
   @Get()
-  @ZodResponse({ type: [ShiftDto] })
+  @ZodResponse({ type: ShiftPageDto })
   async list(@Query() query: ListShiftsQueryDto) {
-    return (await this.shifts.list(query)).map(toShiftDto);
+    const page = await this.shifts.list(query);
+    return { items: page.items.map(toShiftDto), nextCursor: page.nextCursor };
   }
 
   @Get(':id')
