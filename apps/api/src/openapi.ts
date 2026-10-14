@@ -1,14 +1,18 @@
 import type { INestApplication } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { DocumentBuilder, type OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 
-export function setupOpenApi(app: INestApplication): void {
+/** The OpenAPI document, generated from the controllers and the zod contracts. */
+export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const config = new DocumentBuilder()
     .setTitle('Covershift API')
     .setDescription('Multi-tenant shift scheduling and shift swaps')
-    .setVersion('0.1.0')
+    .setVersion('0.2.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
     .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, cleanupOpenApiDoc(document));
+  return cleanupOpenApiDoc(SwaggerModule.createDocument(app, config));
+}
+
+export function setupOpenApi(app: INestApplication): void {
+  SwaggerModule.setup('docs', app, buildOpenApiDocument(app));
 }

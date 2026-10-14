@@ -11,7 +11,8 @@
     "db:migrate": "node -r @swc-node/register scripts/migrate.ts",
     "test:unit": "vitest run --project unit",
     "test:int": "vitest run --project integration",
-    "db:seed": "node -r @swc-node/register scripts/seed.ts"
+    "db:seed": "node -r @swc-node/register scripts/seed.ts",
+    "openapi:update": "UPDATE_OPENAPI=1 vitest run --project integration test/openapi"
   },
   "dependencies": {
     "@covershift/shared": "workspace:*",

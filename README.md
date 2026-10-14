@@ -72,6 +72,9 @@ OpenAPI UI at `/docs` (JSON at `/docs-json`), generated from the zod contracts i
 
 | Endpoint                                                  | Who                                                    |
 | --------------------------------------------------------- | ------------------------------------------------------ |
+| `GET /me`                                                 | anyone signed in: profile + active memberships, roles  |
+| `GET /organizations`                                      | anyone signed in: organizations they're active in      |
+| `GET /organizations/:id/positions`, `/members`            | members of that organization (active members only)     |
 | `GET /shifts`, `GET /shifts/:id`                          | members of the shift's organization                    |
 | `POST /shifts`, `PATCH /shifts/:id`, `DELETE /shifts/:id` | managers and admins                                    |
 | `GET /swap-requests`, `GET /swap-requests/:id`            | members                                                |
@@ -80,6 +83,14 @@ OpenAPI UI at `/docs` (JSON at `/docs-json`), generated from the zod contracts i
 | `POST /swap-requests/:id/decline`                         | the direct target                                      |
 | `POST /swap-requests/:id/cancel`                          | the requester (pending or accepted)                    |
 | `POST /swap-requests/:id/approve`, `/reject`              | managers and admins who are not part of the swap       |
+
+**Lists** (`GET /shifts`, `GET /swap-requests`) are keyset-paginated: `?limit=` (1–100,
+default 50) and `?cursor=`, answering `{ items, nextCursor }`. Pass `nextCursor` back verbatim;
+`null` means the end. Shifts come in start-time order and take `from`/`to` (overlapping
+`[from, to)`), `organizationId` and `assignedUserId`. Swap requests come newest first and take
+`organizationId`, `shiftId`, `status`, `requesterId`, `targetUserId` and `open` (`true` = no
+target). The committed contract is [`docs/openapi.json`](docs/openapi.json); a test fails when
+it drifts from the code (`pnpm --filter @covershift/api openapi:update` to refresh it).
 
 Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json` with
 a stable `code`:
