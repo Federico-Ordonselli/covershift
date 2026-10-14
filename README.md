@@ -33,6 +33,37 @@ tokens with it, and the API verifies them via the JWKS endpoint
 migrations in `apps/api` (see `docs/adr`). Realtime, Storage, Edge Functions
 and Analytics are disabled in `supabase/config.toml` until the phases that need them.
 
+## CI & Security
+
+Every push to `main` and every PR runs two workflows. Actions are pinned to commit SHAs
+(Dependabot updates them), jobs default to `contents: read`, and superseded runs are cancelled.
+Phase 1 uses no repository secrets.
+
+| Gate                                                              | Catches                                                                                                                                             | Does **not** catch                                                                                                  |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Lint** (`ci.yml`)                                               | Style/correctness rules; **SQL built by interpolation** or `+` (fails the build, ADR 001)                                                           | SQL assembled in another module and passed in as a plain variable (the rule is syntactic)                           |
+| **Typecheck**                                                     | Type errors across API and shared contracts                                                                                                         | Anything runtime: SQL, RLS, env                                                                                     |
+| **Unit tests**                                                    | JWT verification edge cases, error mapping, zod contracts, the lint rule itself                                                                     | Anything that needs Postgres                                                                                        |
+| **Integration tests** (real Supabase: db, auth, kong)             | **Tenant isolation and swap rules through the real RLS role**, JWKS against real GoTrue, commit-time errors, migration down/up round-trip           | Behaviour behind HTTP (covered by e2e tests from commit 15), load/perf                                              |
+| ↳ **Policy catalog test** (`test/rls/policy-hygiene.int.spec.ts`) | Unwrapped `auth.uid()`/helper calls in policies (Supabase `auth_rls_initplan`), tables without RLS, `SECURITY DEFINER` without pinned `search_path` | Whether a policy's _logic_ is right (that's the RLS suites' job)                                                    |
+| **CodeQL** (`security.yml`, also weekly)                          | Injection, unsafe deserialization, path traversal and similar patterns in TS                                                                        | **RLS or authorization logic bugs**: it can't reason about policies or triggers. The RLS suites and catalog test do |
+| **gitleaks** (full history)                                       | Committed credentials (default rules, no allowlist: no key-shaped values are tracked)                                                     | Secrets outside git (CI logs, env), or ones in formats no rule recognises                                           |
+| **pnpm audit**                                                    | Known advisories: high/critical in prod deps block, everything else is reported                                                                     | Unknown vulnerabilities, malicious-but-unreported packages, vulnerable code paths you don't actually use            |
+| **supabase db lint** (plpgsql_check on `app`, `ops`)              | Broken PL/pgSQL: unknown columns/types in triggers and helpers                                                                                      | Logic errors in correct-looking functions; SQL-language functions and policies (catalog test + RLS suites)          |
+| **Dependabot** (weekly)                                           | Outdated npm packages and pinned actions                                                                                                            | Anything it can't open a PR for (e.g. a breaking major you haven't reviewed)                                        |
+
+**Deferred to phase 4** (with the Docker image and Terraform): Trivy scan of the API image,
+IaC scanning of `infra/` (Checkov or tfsec), Dependabot for Docker and Terraform, and
+**GitHub OIDC to AWS** for deploys instead of long-lived access keys.
+
+Run the same gates locally:
+
+```sh
+pnpm lint && pnpm format:check && pnpm typecheck
+pnpm --filter @covershift/api test           # unit + integration (needs pnpm db:start, pnpm db:migrate)
+pnpm supabase db lint --local --schema app,ops --fail-on error
+```
+
 ## Troubleshooting
 
 ### `supabase start` fails with `HealthCheckTimeoutError ... unexpected status 502`
