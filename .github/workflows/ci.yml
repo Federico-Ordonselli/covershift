@@ -83,6 +83,11 @@ jobs:
       - name: Migrate (privileged URL)
         run: pnpm db:migrate
 
+      # Type-checks function bodies (the transition and timestamp triggers, RLS helpers).
+      # RLS performance/hygiene (auth_rls_initplan etc.) is the catalog test's job below.
+      - name: Database lint (plpgsql_check on app, ops)
+        run: pnpm supabase db lint --local --schema app,ops --level warning --fail-on error
+
       - name: Integration suite (as covershift_api, incl. pg_policies catalog checks)
         run: pnpm --filter @covershift/api test:int --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
 
@@ -111,3 +116,54 @@ jobs:
           name: integration-test-results
           path: apps/api/test-results/
           retention-days: 7
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # list the PR's commits to scan
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history: a secret removed in a later commit is still leaked
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # automatic, scoped by the permissions above
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: false # would need pull-requests: write
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Production dependencies, high and critical (blocking)
+        run: pnpm audit --prod --audit-level=high
+      - name: All dependencies, any severity (informational)
+        continue-on-error: true
+        run: pnpm audit
+
+  # The only required status check in the ruleset. It needs every other job and runs even
+  # when they fail, so a skipped or cancelled job can't leave the requirement vacuously met
+  # (a required check that never reports a failure is not a gate). Add new jobs to `needs`.
+  gate:
+    name: CI gate
+    if: always()
+    needs: [lint, typecheck, unit, integration, gitleaks, audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every needed job concluded success (skipped and cancelled fail)
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'length > 0 and all(.[]; .result == "success")' > /dev/null
