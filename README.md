@@ -62,3 +62,14 @@ pnpm db:stop && pnpm db:start
 
 Setting `"dns-search"` in `/etc/docker/daemon.json` does **not** fix this. It did
 not take effect for the Supabase containers' resolver, so don't rely on it.
+
+## Tech choices worth noting
+
+- **NestJS 11, not 12.** Nest 12 is ESM-only and `nestjs-zod` (the zod → DTO/OpenAPI
+  bridge) does not support it yet. Moving to 12 is a contained follow-up.
+- **TypeORM 1.x**, DataSource API only. `synchronize` is never enabled: the schema is
+  owned by migrations.
+- **Vitest + unplugin-swc** instead of Jest: faster, native ESM, and SWC emits the
+  decorator metadata Nest DI and TypeORM need (Vitest's default esbuild transform can't).
+- **Zod contracts in `packages/shared`** are the single source of truth for validation,
+  OpenAPI and (later) frontend types.

@@ -1,3 +1,8 @@
 packages:
   - apps/*
   - packages/*
+
+# Dependency lifecycle scripts are denied by default; allow only what's needed.
+allowBuilds:
+  '@swc/core': true
+  '@scarf/scarf': false # install telemetry pulled in by swagger-ui-dist
