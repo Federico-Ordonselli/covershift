@@ -239,6 +239,33 @@ error. It's checked at assignment, at accept/claim (fail fast), and again at app
 the approving transaction, because certificates can expire in between. It is covered by
 unit and integration tests.
 
+## Accepted risk: `request.jwt.claims` is writable from inside the session
+
+The identity RLS sees is just a transaction-local setting. Any SQL running on that
+connection can change it, with `select set_config('request.jwt.claims', ...)` or
+`set local "request.jwt.claims" = ...`. So **a SQL injection anywhere in the API would let
+an attacker impersonate another user within RLS**. They could not escape RLS or gain
+privileges, since they'd still be `authenticated` with its grants, but they could act as any
+member of any organization.
+
+It can't be locked down at the database level. Custom settings can be changed with `SET`, which
+no privilege controls, and `set_config` is granted to `PUBLIC` and used by Supabase's own
+services. PostgREST has the same property. Alternatives considered and rejected for now:
+re-verifying a signed JWT inside Postgres on every statement (cost per query, keys inside the DB),
+or one login role per tenant (doesn't stop impersonation within a tenant, and role sprawl).
+
+**Accepted.** Mitigations:
+
+- **Values never enter SQL text.** An ESLint rule fails the build on interpolated template
+  literals or `+` concatenation passed to `query()` or to query-builder clauses
+  (`where`, `select`, `orderBy`, joins, …), and on interpolated templates that start like SQL
+  (built in a variable first). The rule has its own tests, so it can't silently stop
+  firing. Migrations are the only exemption (DDL identifiers from literal arrays, which
+  can't be bound).
+- No dynamic SQL in PL/pgSQL. If it's ever needed, only `format()` with `%L`/`%I`.
+- Residual risk: the lint rule is syntactic. SQL passed through helper functions across
+  module boundaries could escape it, so code review still matters.
+
 ## Consequences
 
 - **One pooled connection is held for the whole request.** Pool size caps concurrent

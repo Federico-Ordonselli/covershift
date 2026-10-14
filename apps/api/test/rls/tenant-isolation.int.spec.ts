@@ -81,13 +81,13 @@ describe('RLS: tenant isolation', () => {
     });
 
     it('a crafted read filtered by another tenant’s organization_id returns nothing', async () => {
-      for (const table of ['shifts', 'swap_requests', 'memberships', 'positions']) {
-        const rows = await db.as(
-          a.users.manager!,
-          `select * from app.${table} where organization_id = $1`,
-          [b.orgId],
-        );
-        expect(rows, table).toEqual([]);
+      for (const sql of [
+        'select * from app.shifts where organization_id = $1',
+        'select * from app.swap_requests where organization_id = $1',
+        'select * from app.memberships where organization_id = $1',
+        'select * from app.positions where organization_id = $1',
+      ]) {
+        expect(await db.as(a.users.manager!, sql, [b.orgId]), sql).toEqual([]);
       }
       expect(
         await db.as(a.users.manager!, 'select * from app.organizations where id = $1', [b.orgId]),
@@ -114,8 +114,14 @@ describe('RLS: tenant isolation', () => {
 
     it('a token for a user with no membership sees nothing at all', async () => {
       const stranger = { id: randomUUID() };
-      for (const table of ['organizations', 'shifts', 'swap_requests', 'memberships', 'profiles']) {
-        expect(await db.as(stranger, `select * from app.${table}`), table).toEqual([]);
+      for (const sql of [
+        'select * from app.organizations',
+        'select * from app.shifts',
+        'select * from app.swap_requests',
+        'select * from app.memberships',
+        'select * from app.profiles',
+      ]) {
+        expect(await db.as(stranger, sql), sql).toEqual([]);
       }
     });
   });

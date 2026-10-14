@@ -63,11 +63,26 @@ describe('RLS: swap request state machine', () => {
     return row!.id;
   }
 
-  const setStatus = (who: string, status: string, extra = '') =>
+  // Static SQL per extra column: values are always bind parameters (lint rule, ADR 001).
+  const UPDATE_SQL = {
+    none: 'update app.swap_requests set status = $1 where id = $2 returning id',
+    target_user_id:
+      'update app.swap_requests set status = $1, target_user_id = $3 where id = $2 returning id',
+    decided_at:
+      'update app.swap_requests set status = $1, decided_at = $3 where id = $2 returning id',
+    decided_by_id:
+      'update app.swap_requests set status = $1, decided_by_id = $3 where id = $2 returning id',
+  } as const;
+
+  const setStatus = (
+    who: string,
+    status: string,
+    also?: [column: Exclude<keyof typeof UPDATE_SQL, 'none'>, value: string],
+  ) =>
     db.as<{ id: string }>(
       u(who),
-      `update app.swap_requests set status = $1 ${extra} where id = $2 returning id`,
-      [status, swap],
+      UPDATE_SQL[also ? also[0] : 'none'],
+      also ? [status, swap, also[1]] : [status, swap],
     );
 
   async function row() {
@@ -133,7 +148,7 @@ describe('RLS: swap request state machine', () => {
     it('H1: a bystander cannot decline someone else’s open offer', async () => {
       swap = await openSwap();
       await expectDbError(
-        setStatus('coworker', 'declined', `, target_user_id = '${u('coworker').id}'`),
+        setStatus('coworker', 'declined', ['target_user_id', u('coworker').id]),
         TRANSITION,
         /^SWAP_INVALID_TRANSITION|^SWAP_NOT_ALLOWED/,
       );
@@ -145,11 +160,11 @@ describe('RLS: swap request state machine', () => {
       swap = await openSwap('target');
       // no UPDATE grant on decision columns at all
       await expectDbError(
-        setStatus('requester', 'cancelled', `, decided_at = '2020-01-01'`),
+        setStatus('requester', 'cancelled', ['decided_at', '2020-01-01']),
         '42501',
       );
       await expectDbError(
-        setStatus('requester', 'cancelled', `, target_user_id = '${u('coworker').id}'`),
+        setStatus('requester', 'cancelled', ['target_user_id', u('coworker').id]),
         TRANSITION,
         /^SWAP_INVALID_TRANSITION: target changes only when claiming/,
       );
@@ -179,7 +194,7 @@ describe('RLS: swap request state machine', () => {
       swap = await openSwap('target');
       await setStatus('target', 'accepted');
       await expectDbError(
-        setStatus('manager', 'approved', `, decided_by_id = '${u('manager2').id}'`),
+        setStatus('manager', 'approved', ['decided_by_id', u('manager2').id]),
         '42501',
       );
       await setStatus('manager', 'approved');
@@ -288,11 +303,11 @@ describe('RLS: swap request state machine', () => {
     it('cannot claim your own open offer, or claim on someone else’s behalf', async () => {
       swap = await openSwap();
       await expectDbError(
-        setStatus('requester', 'accepted', `, target_user_id = '${u('requester').id}'`),
+        setStatus('requester', 'accepted', ['target_user_id', u('requester').id]),
         TRANSITION,
       );
       await expectDbError(
-        setStatus('claimer', 'accepted', `, target_user_id = '${u('coworker').id}'`),
+        setStatus('claimer', 'accepted', ['target_user_id', u('coworker').id]),
         TRANSITION,
         /a claim assigns the offer to the claimer/,
       );
