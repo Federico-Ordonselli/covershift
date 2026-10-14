@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+supabase/.branches
+supabase/.temp
+supabase/signing_keys.json
+.DS_Store
