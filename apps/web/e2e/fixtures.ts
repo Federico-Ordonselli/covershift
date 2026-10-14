@@ -58,11 +58,16 @@ export const test = base.extend<{
     { auto: true },
   ],
   /** A separate, signed-in browser context per user (several people in one test). */
-  as: async ({ browser }, use) => {
+  as: async ({ browser, baseURL }, use) => {
+    // Explicit, though @playwright/test would also fill it in: its runner copies the
+    // configured context options (use.baseURL included) into every context created
+    // during a test. Passing it keeps this fixture correct if that ever changes, or if
+    // it's reused outside the test runner. (Codex review of #21; see phase-2 report.)
+    if (!baseURL) throw new Error('as(): use.baseURL must be set in playwright.config.ts');
     const contexts: BrowserContext[] = [];
     const violations: CspViolation[] = [];
     await use(async (email) => {
-      const context = await browser.newContext();
+      const context = await browser.newContext({ baseURL });
       contexts.push(context);
       const page = await context.newPage();
       const recorded = await guardCsp(page);
