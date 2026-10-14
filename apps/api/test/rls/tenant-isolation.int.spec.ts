@@ -156,28 +156,6 @@ describe('RLS: tenant isolation', () => {
       );
     });
 
-    it('a manager cannot point their shift at another tenant’s position (composite FK)', async () => {
-      await expectDbError(
-        db.as(
-          a.users.manager!,
-          `insert into app.shifts (organization_id, position_id, starts_at, ends_at)
-           values ($1, $2, '2030-04-01T06:00Z', '2030-04-01T14:00Z')`,
-          [a.orgId, b.positionId],
-        ),
-        '23503',
-      );
-    });
-
-    it('a manager cannot assign someone outside the organization (composite FK)', async () => {
-      await expectDbError(
-        db.as(a.users.manager!, `update app.shifts set assigned_user_id = $1 where id = $2`, [
-          b.users.staff!.id,
-          shiftA2,
-        ]),
-        '23503',
-      );
-    });
-
     it('updates and deletes of another tenant’s rows silently match nothing', async () => {
       const updated = await db.as(
         a.users.manager!,
@@ -239,6 +217,35 @@ describe('RLS: tenant isolation', () => {
         ),
         'CS409',
         /^SWAP_NOT_ALLOWED: requests are created by their requester/,
+      );
+    });
+  });
+
+  /**
+   * Not RLS: these hold for every role, including privileged ones (verified by running the
+   * suite without impersonation). They complete the isolation story: even ids that RLS
+   * would let through can't be combined across tenants.
+   */
+  describe('constraints that hold for every role (composite tenant FKs)', () => {
+    it('a manager cannot point their shift at another tenant’s position (composite FK)', async () => {
+      await expectDbError(
+        db.as(
+          a.users.manager!,
+          `insert into app.shifts (organization_id, position_id, starts_at, ends_at)
+           values ($1, $2, '2030-04-01T06:00Z', '2030-04-01T14:00Z')`,
+          [a.orgId, b.positionId],
+        ),
+        '23503',
+      );
+    });
+
+    it('a manager cannot assign someone outside the organization (composite FK)', async () => {
+      await expectDbError(
+        db.as(a.users.manager!, `update app.shifts set assigned_user_id = $1 where id = $2`, [
+          b.users.staff!.id,
+          shiftA2,
+        ]),
+        '23503',
       );
     });
   });

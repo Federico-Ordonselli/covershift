@@ -18,6 +18,7 @@ import {
 describe('RlsTransactionRunner (real Postgres, covershift_api role)', () => {
   let admin: Pool;
   let tenant: Tenant;
+  let otherTenant: Tenant;
   let dataSource: DataSource;
   let rls: RlsTransactionRunner;
   let tx: TxManager;
@@ -43,10 +44,17 @@ describe('RlsTransactionRunner (real Postgres, covershift_api role)', () => {
       endsAt: '2030-01-01T14:00:00Z',
       assignedUserId: tenant.users.staff!.id,
     });
+    // A second tenant's row must exist, or "sees 1 shift" would pass with RLS switched off.
+    otherTenant = await createTenant(admin, 'rls-runner-other', { staff: 'staff' });
+    await insertShift(admin, otherTenant, {
+      startsAt: '2030-01-01T06:00:00Z',
+      endsAt: '2030-01-01T14:00:00Z',
+    });
   });
 
   afterAll(async () => {
     await dropTenant(admin, tenant);
+    await dropTenant(admin, otherTenant);
     await admin?.end();
     await close?.();
     delete process.env.DATABASE_POOL_SIZE;
@@ -68,10 +76,13 @@ describe('RlsTransactionRunner (real Postgres, covershift_api role)', () => {
   });
 
   it('applies RLS to queries in the transaction', async () => {
-    const [row] = await rls.run(claimsFor(tenant.users.staff!), (em) =>
-      em.query<Array<{ count: string }>>('select count(*) from app.shifts'),
+    const { rows } = await admin.query<{ n: number }>(`select count(*)::int as n from app.shifts`);
+    expect(rows[0]!.n).toBeGreaterThanOrEqual(2); // precondition: other tenants' rows exist
+
+    const visible = await rls.run(claimsFor(tenant.users.staff!), (em) =>
+      em.query<Array<{ organization_id: string }>>('select organization_id from app.shifts'),
     );
-    expect(Number(row!.count)).toBe(1);
+    expect(visible.map((r) => r.organization_id)).toEqual([tenant.orgId]);
   });
 
   it('does not leak the identity to the next user of the pooled connection', async () => {
