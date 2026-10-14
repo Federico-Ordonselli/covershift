@@ -4,9 +4,22 @@ Multi-tenant shift scheduling and shift-swap API for operational teams (airport 
 retail, healthcare): managers schedule shifts, staff swap them, and nobody works a position
 without a certification valid until the shift ends.
 
-> **Phase 1 is complete**: API, schema, row-level security, CI. What was built, what's fragile,
-> and what comes next: [`docs/phase-1-report.md`](docs/phase-1-report.md). Design decisions:
+> **Phase 2 is complete**: the web app (auth, schedule, swaps, approvals) on top of the
+> phase 1 API, with component and end-to-end tests in CI. Reports:
+> [phase 1](docs/phase-1-report.md), [phase 2](docs/phase-2-report.md). Design decisions:
 > [`docs/adr/`](docs/adr/).
+
+## Screenshots
+
+| Sign in                                   | Week schedule (manager)                         |
+| ----------------------------------------- | ----------------------------------------------- |
+| ![Sign in](docs/screenshots/login.png)    | ![Week schedule](docs/screenshots/schedule.png) |
+| **Swap offer, as the colleague**          | **Approvals (manager)**                         |
+| ![Swap offer](docs/screenshots/swaps.png) | ![Approvals](docs/screenshots/approvals.png)    |
+
+Generated from the seeded demo by a Playwright script under the same CSP as the e2e suite.
+Refresh them with `pnpm --filter @covershift/api build && pnpm --filter @covershift/web build
+&& pnpm --filter @covershift/web screenshots` (needs the local stack running).
 
 ## Architecture in one minute
 

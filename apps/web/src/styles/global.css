@@ -75,3 +75,9 @@ a {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Headings receive programmatic focus on navigation (PageHeading) so screen readers and
+   keyboard users start at the new page; they aren't interactive, so no focus ring. */
+h1[tabindex='-1']:focus {
+  outline: none;
+}
