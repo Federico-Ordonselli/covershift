@@ -6,7 +6,7 @@
 #   node dist/migrate.js    one-off migration task (needs DATABASE_MIGRATION_URL)
 
 # --- build: install, compile, prune to production dependencies -----------------------------
-FROM node:24.16.0-bookworm-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203 AS build
+FROM node:26.12.0-bookworm-slim@sha256:298992629d69bbd5b2b03ad57094d8e4fcb3a8eeb7c4e25d29de656519568913 AS build
 ENV CI=true PNPM_HOME=/pnpm
 RUN corepack enable
 WORKDIR /repo
