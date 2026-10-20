@@ -1,4 +1,6 @@
 import {
+  AssignmentQuerySchema,
+  AssignmentCandidateSchema,
   CreateShiftSchema,
   ListShiftsQuerySchema,
   ShiftPageSchema,
@@ -7,6 +9,9 @@ import {
 } from '@covershift/shared';
 import { createZodDto } from 'nestjs-zod';
 import { type Shift } from '../database/entities';
+
+export class AssignmentQueryDto extends createZodDto(AssignmentQuerySchema) {}
+export class AssignmentCandidateDto extends createZodDto(AssignmentCandidateSchema) {}
 
 export class CreateShiftDto extends createZodDto(CreateShiftSchema) {}
 export class UpdateShiftDto extends createZodDto(UpdateShiftSchema) {}
@@ -22,6 +27,7 @@ export function toShiftDto(shift: Shift): ShiftDto {
     startsAt: shift.startsAt.toISOString(),
     endsAt: shift.endsAt.toISOString(),
     assignedUserId: shift.assignedUserId,
+    overrideReason: shift.overrideReason ?? undefined,
     createdAt: shift.createdAt.toISOString(),
     updatedAt: shift.updatedAt.toISOString(),
   };

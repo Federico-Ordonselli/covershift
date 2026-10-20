@@ -1,4 +1,9 @@
 import {
+  type AssignmentQuery,
+  type CreateShift,
+  type UpdateShift,
+  AssignmentCandidatesSchema,
+  WorkerProfileSchema,
   type CreateSwapRequest,
   type ListShiftsQuery,
   type ListSwapRequestsQuery,
@@ -29,6 +34,20 @@ export function createEndpoints(api: ApiClient) {
     members: (orgId: string) =>
       api.request(`/organizations/${encodeURIComponent(orgId)}/members`, {
         schema: z.array(MemberSchema),
+      }),
+    workerProfile: (orgId: string) =>
+      api.request(`/organizations/${encodeURIComponent(orgId)}/worker-profile`, {
+        schema: WorkerProfileSchema,
+      }),
+    assignmentCandidates: (query: AssignmentQuery) =>
+      api.request('/shifts/candidates', { query, schema: AssignmentCandidatesSchema }),
+    createShift: (body: CreateShift) =>
+      api.request('/shifts', { method: 'POST', body, schema: ShiftSchema }),
+    updateShift: (id: string, body: UpdateShift) =>
+      api.request(`/shifts/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body,
+        schema: ShiftSchema,
       }),
     shifts: (query: Partial<ListShiftsQuery>) =>
       api.request('/shifts', { query, schema: ShiftPageSchema }),

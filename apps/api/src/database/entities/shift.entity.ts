@@ -33,6 +33,9 @@ export class Shift {
   @Column({ name: 'assigned_user_id', type: 'uuid', nullable: true })
   assignedUserId: string | null;
 
+  @Column({ name: 'override_reason', type: 'text', nullable: true })
+  overrideReason: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

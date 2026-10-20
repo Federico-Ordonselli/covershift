@@ -38,3 +38,21 @@ export const MeSchema = z.object({
   memberships: z.array(OrganizationSummarySchema),
 });
 export type Me = z.infer<typeof MeSchema>;
+
+export const WorkerProfileSchema = z.object({
+  certifications: z.array(
+    z.object({
+      id: UuidSchema,
+      name: z.string(),
+      expiresAt: IsoDateTimeSchema.nullable(),
+    }),
+  ),
+  positions: z.array(
+    z.object({
+      id: UuidSchema,
+      name: z.string(),
+      eligible: z.boolean(),
+      required: z.array(z.string()),
+    }),
+  ),
+});

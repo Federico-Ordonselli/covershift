@@ -1,6 +1,7 @@
 import { type RouteObject } from 'react-router';
 import { LoginPage } from '../features/auth/LoginPage';
 import { NotFoundPage } from '../features/NotFoundPage';
+import { WorkerProfilePage } from '../features/orgs/WorkerProfilePage';
 import { OrgLayout } from '../features/orgs/OrgLayout';
 import { RootRedirect } from '../features/orgs/RootRedirect';
 import { InboxPage } from '../features/inbox/InboxPage';
@@ -19,6 +20,7 @@ export const routes: RouteObject[] = [
         element: <OrgLayout />,
         children: [
           { index: true, element: <SchedulePage /> },
+          { path: 'profile', element: <WorkerProfilePage /> },
           { path: 'schedule', element: <SchedulePage /> },
           { path: 'swaps', element: <SwapsPage /> },
           { path: 'swaps/:tab', element: <SwapsPage /> },

@@ -1,5 +1,5 @@
 /**
- * Local demo data: one organization, one manager, three staff, positions with
+ * Local demo data: one organization, one manager, four staff, positions with
  * certification requirements, a week of shifts and one open swap offer.
  *
  *   pnpm db:seed        (re-runnable: resets the demo organization, reuses users)

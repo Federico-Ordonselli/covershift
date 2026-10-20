@@ -56,7 +56,7 @@ Requirements: Node 24, pnpm (via Corepack), Docker.
 pnpm install
 pnpm db:start   # ES256 signing key on first run, `supabase start`, then writes the env files
 pnpm db:migrate
-pnpm db:seed    # demo org: 1 manager + 3 staff, positions, a week of shifts, one open swap
+pnpm db:seed    # demo org: 1 manager + 4 staff, positions, a week of shifts, one open swap
 pnpm --filter @covershift/api dev   # API on :3000, OpenAPI UI at /docs
 pnpm --filter @covershift/web dev   # web app on http://127.0.0.1:5173 (proxies /api to :3000)
 ```
@@ -94,10 +94,23 @@ tokens with it, and the API verifies them via the JWKS endpoint
 (`http://127.0.0.1:54321/auth/v1/.well-known/jwks.json`) rather than a shared secret.
 
 The seed is re-runnable: it resets only the demo organization (`lakeside-security`) and
-reuses its users. Log in as `manager@covershift.test`, `sam@…`, `alex@…` or `jo@…` with
+reuses its users. Log in as `manager@covershift.test`, `sam@…`, `alex@…`, `jo@…` or `worker@covershift.test` with
 password `covershift-demo` (override with `SEED_PASSWORD`). It refuses to run against a
 non-local Supabase URL. Every seeded assignment satisfies the certification and overlap
 rules, and a test checks that with the API's own eligibility service.
+
+The `worker@covershift.test` account is Luca Bianchi, a regular staff member with an
+explosive trace detection certificate valid for 180 days and three baggage screening
+shifts. “My qualifications” lists certificates, expiry dates, positions the worker can
+perform, and links to personal shifts and swap requests. Queue hosting requires no
+certification; gate screening requires qualifications Luca does not hold.
+
+Managers can create shifts and edit assignments from Schedule. The assignee dropdown
+checks active membership, certification validity through shift end, and overlapping
+assignments. “Override certifications” exposes otherwise unqualified available members
+and requires a reason of 5–500 characters, saved on the shift. It cannot bypass inactive
+membership, cross-organization references, or overlapping shifts. Each edit requires a
+fresh explicit override when the assignee remains unqualified.
 
 `supabase/migrations` is intentionally unused: the schema is owned by TypeORM
 migrations in `apps/api` (see `docs/adr`). Realtime, Storage, Edge Functions

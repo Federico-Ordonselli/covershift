@@ -20,16 +20,20 @@ import { OfferSwapDialog } from '../swaps/OfferSwapDialog';
 import styles from './SchedulePage.module.css';
 import { useWeekShifts, WEEK_MAX_PAGES, WEEK_PAGE_SIZE } from './useWeekShifts';
 
+import { ShiftEditor } from './ShiftEditor';
+
 type View = 'all' | 'mine';
 
 export function SchedulePage() {
-  const { org, timeZone, timeZoneValid, userId } = useOrg();
+  const { org, timeZone, timeZoneValid, userId, isScheduler } = useOrg();
   const [params] = useSearchParams();
   const view: View = params.get('view') === 'mine' ? 'mine' : 'all';
   const week = weekFromKey(params.get('week'), timeZone);
   const shifts = useWeekShifts(org.id, week, view === 'mine' ? userId : undefined);
   const positions = usePositions(org.id);
   const members = useMembers(org.id);
+  const [editing, setEditing] = useState<Shift | null | undefined>(undefined);
+  const [saved, setSaved] = useState(false);
   const [offering, setOffering] = useState<Shift | null>(null);
   const [offered, setOffered] = useState<string | null>(null);
   // Captured once per visit: whether a shift can still be offered (not yet started).
@@ -46,6 +50,28 @@ export function SchedulePage() {
   return (
     <>
       <PageHeading>Schedule</PageHeading>
+      {isScheduler ? (
+        <Button
+          onClick={() => {
+            setSaved(false);
+            setEditing(null);
+          }}
+        >
+          Create shift
+        </Button>
+      ) : null}
+      {saved ? <Alert tone="info" title="Shift saved" /> : null}
+      {editing !== undefined ? (
+        <ShiftEditor
+          shift={editing}
+          day={week.key}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => {
+            setEditing(undefined);
+            setSaved(true);
+          }}
+        />
+      ) : null}
       <div className={styles.toolbar}>
         <nav aria-label="Week" className={styles.group}>
           <Link to={link({ week: shiftWeeks(week, -1, timeZone) })}>← Previous week</Link>
@@ -134,6 +160,14 @@ export function SchedulePage() {
           )}
           userId={userId}
           now={now}
+          onEdit={
+            isScheduler
+              ? (shift) => {
+                  setSaved(false);
+                  setEditing(shift);
+                }
+              : undefined
+          }
           onOffer={(shift) => {
             setOffered(null);
             setOffering(shift);
@@ -162,9 +196,10 @@ function WeekGrid(props: {
   memberName: (id: string) => string;
   userId: string;
   now: number;
+  onEdit?: (shift: Shift) => void;
   onOffer: (shift: Shift) => void;
 }) {
-  const { week, timeZone, shifts, positionName, memberName, userId, now, onOffer } = props;
+  const { week, timeZone, shifts, positionName, memberName, userId, now, onOffer, onEdit } = props;
   const byDay = new Map<string, Shift[]>();
   for (const shift of shifts) {
     const key = dayKey(shift.startsAt, timeZone);
@@ -207,6 +242,14 @@ function WeekGrid(props: {
                         {shift.assignedUserId ? memberName(shift.assignedUserId) : 'Unassigned'}
                         {mine ? <strong> (you)</strong> : null}
                       </span>
+                      {shift.overrideReason ? (
+                        <small>Certification override: {shift.overrideReason}</small>
+                      ) : null}
+                      {onEdit ? (
+                        <Button variant="secondary" onClick={() => onEdit(shift)}>
+                          Edit / assign
+                        </Button>
+                      ) : null}
                       {mine && Date.parse(shift.startsAt) > now ? (
                         <Button
                           variant="secondary"
