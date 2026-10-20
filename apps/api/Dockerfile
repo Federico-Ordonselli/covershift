@@ -26,7 +26,7 @@ RUN pnpm --filter @covershift/shared build \
 
 # --- runtime: distroless, no shell, no package manager -------------------------------------
 # debian13: the debian12 variant still ships libssl3 3.0.18 with fixable HIGH/CRITICAL CVEs.
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:c1326ce1aad4b976dce3a3da8b7eb5c8328e635e312309a7a0e5319d1470be0d
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
 COPY --from=build /out/package.json ./
