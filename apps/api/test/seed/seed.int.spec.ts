@@ -60,12 +60,12 @@ describe('seed script', () => {
     expect(rows).toEqual([{ id: second.organizationId }]);
   });
 
-  it('has 1 manager, 3 staff, 3 positions, a week of shifts and one open offer', async () => {
+  it('has 1 manager, 4 staff, 3 positions, a week of shifts and one open offer', async () => {
     const { rows: roles } = await pool.query<{ role: string; n: number }>(
       `select role, count(*)::int as n from app.memberships where organization_id = $1 group by role`,
       [second.organizationId],
     );
-    expect(Object.fromEntries(roles.map((r) => [r.role, r.n]))).toEqual({ manager: 1, staff: 3 });
+    expect(Object.fromEntries(roles.map((r) => [r.role, r.n]))).toEqual({ manager: 1, staff: 4 });
 
     const { rows: counts } = await pool.query(
       `select (select count(*)::int from app.positions where organization_id = $1) as positions,

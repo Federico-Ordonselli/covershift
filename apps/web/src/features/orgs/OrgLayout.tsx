@@ -65,6 +65,7 @@ export function OrgLayout() {
         <nav aria-label="Main" className={styles.nav}>
           <NavLink to={`/orgs/${membership.id}/schedule`}>Schedule</NavLink>
           <NavLink to={`/orgs/${membership.id}/swaps`}>Swaps</NavLink>
+          <NavLink to={`/orgs/${membership.id}/profile`}>My qualifications</NavLink>
           {context.isScheduler ? (
             <NavLink to={`/orgs/${membership.id}/inbox`}>Approvals</NavLink>
           ) : null}

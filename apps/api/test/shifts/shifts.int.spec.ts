@@ -161,6 +161,110 @@ describe('ShiftsService (real RLS)', () => {
     });
   });
 
+  describe('assignment candidates and override', () => {
+    it('lists eligible members, exclusions and override availability', async () => {
+      const candidates = await as('manager', (s) => s.candidates({ ...base(), ...day(3) }));
+      expect(candidates.find((c) => c.userId === u('certified').id)).toMatchObject({
+        eligible: true,
+        canOverride: false,
+      });
+      expect(candidates.find((c) => c.userId === u('uncertified').id)).toMatchObject({
+        eligible: false,
+        canOverride: true,
+      });
+      expect(candidates.some((c) => c.userId === u('leaver').id)).toBe(false);
+      expect(candidates.some((c) => c.userId === b.users.staff!.id)).toBe(false);
+    });
+
+    it('staff cannot inspect candidates or use override', async () => {
+      await expect(
+        as('certified', (s) => s.candidates({ ...base(), ...day(3) })),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        as('uncertified', (s) =>
+          s.create({
+            ...base(),
+            ...day(20),
+            assignedUserId: u('uncertified').id,
+            overrideReason: 'Training supervised',
+          }),
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('persists an explicit override and still blocks overlap and inactive members', async () => {
+      const created = await as('manager', (s) =>
+        s.create({
+          ...base(),
+          ...day(20),
+          assignedUserId: u('uncertified').id,
+          overrideReason: 'Training supervised',
+        }),
+      );
+      expect(created.overrideReason).toBe('Training supervised');
+      const candidates = await as('manager', (s) => s.candidates({ ...base(), ...day(20) }));
+      expect(candidates.find((c) => c.userId === u('uncertified').id)).toMatchObject({
+        eligible: false,
+        canOverride: false,
+      });
+      await expect(
+        as('manager', (s) =>
+          s.create({
+            ...base(),
+            ...day(20),
+            assignedUserId: u('uncertified').id,
+            overrideReason: 'Training supervised',
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'SHIFT_OVERLAP' });
+      await expect(
+        as('manager', (s) =>
+          s.create({
+            ...base(),
+            ...day(20),
+            assignedUserId: u('leaver').id,
+            overrideReason: 'Training supervised',
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'NOT_A_MEMBER' });
+      const own = await as('manager', (s) =>
+        s.candidates({ ...base(), ...day(20), shiftId: created.id }),
+      );
+      expect(own.find((c) => c.userId === u('uncertified').id)).toMatchObject({
+        canOverride: true,
+      });
+      await expect(
+        as('manager', (s) => s.update(created.id, { assignedUserId: u('uncertified').id })),
+      ).rejects.toMatchObject({ code: 'CERTIFICATION_MISSING' });
+      const edited = await as('manager', (s) =>
+        s.update(created.id, {
+          endsAt: day(20, 6, 15).endsAt,
+          overrideReason: 'Training extended',
+        }),
+      );
+      expect(edited.overrideReason).toBe('Training extended');
+    });
+
+    it('checks expiry and rejects cross-organization references with override', async () => {
+      const candidates = await as('manager', (s) => s.candidates({ ...base(), ...day(10) }));
+      expect(candidates.find((c) => c.userId === u('certified').id)).toMatchObject({
+        eligible: false,
+        canOverride: true,
+      });
+      await expect(
+        as('manager', (s) =>
+          s.create({
+            ...base(),
+            positionId: b.positionId,
+            ...day(21),
+            assignedUserId: u('uncertified').id,
+            overrideReason: 'Training supervised',
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
+    });
+  });
+
   describe('read', () => {
     it('lists only the caller’s organizations, with window filters', async () => {
       await insertShift(admin, b, day(5));

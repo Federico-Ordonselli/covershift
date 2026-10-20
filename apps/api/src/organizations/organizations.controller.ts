@@ -5,7 +5,13 @@ import { type AuthUser } from '../auth/auth-user';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ApiAuthenticatedProblems, ApiProblems } from '../common/api-problems';
 import { IdParam } from '../common/id-param';
-import { MeDto, MemberDto, OrganizationSummaryDto, PositionDto } from './organization.dto';
+import {
+  WorkerProfileDto,
+  MeDto,
+  MemberDto,
+  OrganizationSummaryDto,
+  PositionDto,
+} from './organization.dto';
 import { OrganizationsService } from './organizations.service';
 
 @ApiTags('me')
@@ -44,6 +50,13 @@ export class OrganizationsController {
   @ApiProblems({ 400: true, 404: true })
   async positions(@IdParam() id: string) {
     return this.orgs.positions(id);
+  }
+
+  @Get(':id/worker-profile')
+  @ZodResponse({ status: 200, type: WorkerProfileDto })
+  @ApiProblems({ 400: true, 404: true })
+  async workerProfile(@IdParam() id: string, @CurrentUser() user: AuthUser) {
+    return this.orgs.workerProfile(id, user.id);
   }
 
   /** Active members with display names and roles. At most LIST_HARD_CAP (500), by name. */

@@ -22,7 +22,7 @@ export interface SeedResult {
   openSwapRequestId: string;
 }
 
-type UserKey = 'manager' | 'sam' | 'alex' | 'jo';
+type UserKey = 'manager' | 'sam' | 'alex' | 'jo' | 'worker';
 type CertKey = 'xray' | 'etd' | 'patdown';
 type PositionKey = 'gate' | 'hold' | 'queue';
 
@@ -31,6 +31,7 @@ const USERS: Record<UserKey, { name: string; role: MembershipRole }> = {
   sam: { name: 'Sam Carter', role: 'staff' },
   alex: { name: 'Alex Moreau', role: 'staff' },
   jo: { name: 'Jo Lindqvist', role: 'staff' },
+  worker: { name: 'Luca Bianchi', role: 'staff' },
 };
 
 const CERTS: Record<CertKey, string> = {
@@ -53,6 +54,7 @@ function certificates(): Array<{ user: UserKey; cert: CertKey; expiresInDays: nu
     { user: 'alex', cert: 'xray', expiresInDays: null },
     { user: 'alex', cert: 'patdown', expiresInDays: 365 },
     { user: 'alex', cert: 'etd', expiresInDays: 365 },
+    { user: 'worker', cert: 'etd', expiresInDays: 180 },
     { user: 'sam', cert: 'etd', expiresInDays: 365 },
     // Expires mid-week: Sam can't be given the later gate shifts (demoes the rule).
     { user: 'sam', cert: 'xray', expiresInDays: 3 },
@@ -81,7 +83,7 @@ function shifts(): Array<{
       { day, half: 'am', position: 'gate', user: 'alex' },
       { day, half: 'pm', position: 'gate', user: day < 2 ? 'sam' : null },
       { day, half: 'am', position: 'hold', user: 'sam' },
-      { day, half: 'pm', position: 'hold', user: day % 2 === 0 ? 'alex' : null },
+      { day, half: 'pm', position: 'hold', user: day % 2 === 0 ? 'alex' : 'worker' },
       { day, half: day % 2 === 0 ? 'am' : 'pm', position: 'queue', user: 'jo' },
     );
   }

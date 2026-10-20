@@ -9,7 +9,8 @@ import {
 } from '@covershift/shared';
 import { type AuthUser } from '../auth/auth-user';
 import { DomainError } from '../common/domain-error';
-import { Position, Profile } from '../database/entities';
+import { evaluateEligibility } from '../certifications/eligibility';
+import { CertificationType, UserCertification, Position, Profile } from '../database/entities';
 import { TxManager } from '../database/rls/tx-manager';
 
 interface OrganizationRow {
@@ -58,6 +59,32 @@ export class OrganizationsService {
        order by o.name, o.id`,
       [userId],
     );
+  }
+
+  async workerProfile(organizationId: string, userId: string) {
+    await this.assertVisible(organizationId);
+    const em = this.tx.get();
+    const held = await em.find(UserCertification, { where: { organizationId, userId } });
+    const types = await em.find(CertificationType, { where: { organizationId } });
+    const positions = await em.find(Position, {
+      where: { organizationId },
+      relations: { requiredCertifications: true },
+      order: { name: 'ASC' },
+    });
+    const now = new Date();
+    return {
+      certifications: held.map((c) => ({
+        id: c.id,
+        name: types.find((t) => t.id === c.certificationTypeId)?.name ?? 'Unknown certification',
+        expiresAt: c.expiresAt?.toISOString() ?? null,
+      })),
+      positions: positions.map((p) => ({
+        id: p.id,
+        name: p.name,
+        required: (p.requiredCertifications ?? []).map((c) => c.name),
+        eligible: evaluateEligibility(p.requiredCertifications ?? [], held, now).eligible,
+      })),
+    };
   }
 
   async positions(organizationId: string): Promise<PositionDto[]> {

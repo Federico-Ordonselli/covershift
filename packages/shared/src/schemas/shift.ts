@@ -14,6 +14,7 @@ export const ShiftSchema = z.object({
   startsAt: IsoDateTimeSchema,
   endsAt: IsoDateTimeSchema,
   assignedUserId: UuidSchema.nullable(),
+  overrideReason: z.string().optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
@@ -26,6 +27,7 @@ export const CreateShiftSchema = z
     startsAt: IsoDateTimeSchema,
     endsAt: IsoDateTimeSchema,
     assignedUserId: UuidSchema.nullable().default(null),
+    overrideReason: z.string().trim().min(5).max(500).nullable().optional(),
   })
   .refine(endsAfterStart, endsAfterStartIssue);
 export type CreateShift = z.infer<typeof CreateShiftSchema>;
@@ -37,6 +39,7 @@ export const UpdateShiftSchema = z
     startsAt: IsoDateTimeSchema,
     endsAt: IsoDateTimeSchema,
     assignedUserId: UuidSchema.nullable(),
+    overrideReason: z.string().trim().min(5).max(500).nullable().optional(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: 'At least one field is required' })
@@ -57,3 +60,22 @@ export type ListShiftsQuery = z.infer<typeof ListShiftsQuerySchema>;
 
 export const ShiftPageSchema = pageSchema(ShiftSchema);
 export type ShiftPage = z.infer<typeof ShiftPageSchema>;
+
+export const AssignmentQuerySchema = z
+  .object({
+    organizationId: UuidSchema,
+    positionId: UuidSchema,
+    startsAt: IsoDateTimeSchema,
+    endsAt: IsoDateTimeSchema,
+    shiftId: UuidSchema.optional(),
+  })
+  .refine(endsAfterStart, endsAfterStartIssue);
+export type AssignmentQuery = z.infer<typeof AssignmentQuerySchema>;
+export const AssignmentCandidateSchema = z.object({
+  userId: UuidSchema,
+  fullName: z.string(),
+  eligible: z.boolean(),
+  canOverride: z.boolean(),
+  reasons: z.array(z.string()),
+});
+export const AssignmentCandidatesSchema = z.array(AssignmentCandidateSchema);

@@ -4,6 +4,8 @@ import { ZodResponse } from 'nestjs-zod';
 import { ApiAuthenticatedProblems, ApiProblems } from '../common/api-problems';
 import { IdParam } from '../common/id-param';
 import {
+  AssignmentQueryDto,
+  AssignmentCandidateDto,
   CreateShiftDto,
   ListShiftsQueryDto,
   ShiftDto,
@@ -30,6 +32,13 @@ export class ShiftsController {
   async list(@Query() query: ListShiftsQueryDto) {
     const page = await this.shifts.list(query);
     return { items: page.items.map(toShiftDto), nextCursor: page.nextCursor };
+  }
+
+  @Get('candidates')
+  @ZodResponse({ status: 200, type: [AssignmentCandidateDto] })
+  @ApiProblems({ 400: true, 403: true, 422: ASSIGNMENT_422 })
+  async candidates(@Query() query: AssignmentQueryDto) {
+    return this.shifts.candidates(query);
   }
 
   @Get(':id')

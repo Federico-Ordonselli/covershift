@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  type AssignmentQuery,
   type CreateShift,
   type ListShiftsQuery,
   type Page,
@@ -78,19 +79,71 @@ export class ShiftsService {
     return shift;
   }
 
+  async candidates(query: AssignmentQuery) {
+    await this.access.assertScheduler(query.organizationId);
+    await this.assertPositionInOrg(query.organizationId, query.positionId);
+    if (query.shiftId) {
+      const shift = await this.get(query.shiftId);
+      if (shift.organizationId !== query.organizationId) {
+        throw new DomainError('INVALID_REFERENCE', 'Shift belongs to another organization', 422);
+      }
+    }
+    const people = await this.tx.get().query<Array<{ userId: string; fullName: string }>>(
+      `select m.user_id as "userId", p.full_name as "fullName"
+       from app.memberships m join app.profiles p on p.id = m.user_id
+       where m.organization_id = $1 and m.deactivated_at is null
+       order by p.full_name, m.user_id`,
+      [query.organizationId],
+    );
+    const results = [];
+    for (const person of people) {
+      const assignment: Assignment = {
+        ...query,
+        userId: person.userId,
+        startsAt: new Date(query.startsAt),
+        endsAt: new Date(query.endsAt),
+      };
+      const reasons: string[] = [];
+      let canOverride = false;
+      try {
+        await this.validateAssignment(assignment);
+      } catch (error) {
+        if (!(error instanceof DomainError)) throw error;
+        reasons.push(error.message);
+        if (
+          error.code === 'CERTIFICATION_MISSING' ||
+          error.code === 'CERTIFICATION_EXPIRES_BEFORE_SHIFT_END'
+        ) {
+          try {
+            await this.validateAssignment(assignment, true);
+            canOverride = true;
+          } catch (overlap) {
+            if (!(overlap instanceof DomainError)) throw overlap;
+            reasons.push(overlap.message);
+          }
+        }
+      }
+      results.push({ ...person, eligible: reasons.length === 0, canOverride, reasons });
+    }
+    return results;
+  }
+
   async create(input: CreateShift): Promise<Shift> {
     await this.access.assertScheduler(input.organizationId);
     const startsAt = new Date(input.startsAt);
     const endsAt = new Date(input.endsAt);
 
     if (input.assignedUserId) {
-      await this.validateAssignment({
-        organizationId: input.organizationId,
-        positionId: input.positionId,
-        userId: input.assignedUserId,
-        startsAt,
-        endsAt,
-      });
+      await this.validateAssignment(
+        {
+          organizationId: input.organizationId,
+          positionId: input.positionId,
+          userId: input.assignedUserId,
+          startsAt,
+          endsAt,
+        },
+        !!input.overrideReason,
+      );
     } else {
       await this.assertPositionInOrg(input.organizationId, input.positionId);
     }
@@ -107,6 +160,7 @@ export class ShiftsService {
           startsAt,
           endsAt,
           assignedUserId: input.assignedUserId,
+          overrideReason: input.assignedUserId ? (input.overrideReason ?? null) : null,
         })
         .returning(['id']),
     );
@@ -132,14 +186,17 @@ export class ShiftsService {
     // Anything that changes who works, where, or when re-validates the assignment:
     // a new time window can outlast a certificate or collide with another shift.
     if (next.assignedUserId) {
-      await this.validateAssignment({
-        organizationId: current.organizationId,
-        positionId: next.positionId,
-        userId: next.assignedUserId,
-        startsAt: next.startsAt,
-        endsAt: next.endsAt,
-        shiftId: id,
-      });
+      await this.validateAssignment(
+        {
+          organizationId: current.organizationId,
+          positionId: next.positionId,
+          userId: next.assignedUserId,
+          startsAt: next.startsAt,
+          endsAt: next.endsAt,
+          shiftId: id,
+        },
+        !!patch.overrideReason,
+      );
     } else if (patch.positionId) {
       await this.assertPositionInOrg(current.organizationId, next.positionId);
     }
@@ -149,6 +206,7 @@ export class ShiftsService {
       startsAt: next.startsAt,
       endsAt: next.endsAt,
       assignedUserId: next.assignedUserId,
+      overrideReason: next.assignedUserId ? (patch.overrideReason ?? null) : null,
     };
     const { affected } = await this.tx.write(
       this.tx.get().createQueryBuilder().update(Shift).set(values).where('id = :id', { id }),
@@ -182,14 +240,16 @@ export class ShiftsService {
    * membership, then certifications (via the eligibility rule), then overlaps.
    * Also used by swap approval.
    */
-  async validateAssignment(a: Assignment): Promise<void> {
+  async validateAssignment(a: Assignment, override = false): Promise<void> {
     await this.access.assertActiveMember(a.organizationId, a.userId);
-    await this.eligibility.assertEligible({
-      organizationId: a.organizationId,
-      positionId: a.positionId,
-      userId: a.userId,
-      shiftEndsAt: a.endsAt,
-    });
+    await this.assertPositionInOrg(a.organizationId, a.positionId);
+    if (!override)
+      await this.eligibility.assertEligible({
+        organizationId: a.organizationId,
+        positionId: a.positionId,
+        userId: a.userId,
+        shiftEndsAt: a.endsAt,
+      });
 
     const overlapping = await this.tx
       .get()

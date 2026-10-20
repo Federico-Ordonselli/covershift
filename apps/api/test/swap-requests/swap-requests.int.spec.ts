@@ -242,10 +242,18 @@ describe('SwapRequestsService (real RLS)', () => {
   describe('approve / reject', () => {
     it('approval reassigns the shift and records the decider', async () => {
       const swap = await offer('target');
+      await admin.query(`update app.shifts set override_reason = $1 where id = $2`, [
+        'Previous assignment exception',
+        shift,
+      ]);
       await as('target', (s) => s.accept(u('target').id, swap.id));
       const approved = await as('manager', (s) => s.approve(u('manager').id, swap.id));
       expect(approved).toMatchObject({ status: 'approved', decidedById: u('manager').id });
       expect(await assignedTo(shift)).toBe(u('target').id);
+      const { rows } = await admin.query(`select override_reason from app.shifts where id = $1`, [
+        shift,
+      ]);
+      expect(rows[0].override_reason).toBeNull();
     });
 
     it('staff cannot approve, and neither can a participant manager (both 403)', async () => {
