@@ -16,12 +16,12 @@
     "@date-fns/tz": "^1.5.0",
     "@hookform/resolvers": "^5.9.2",
     "@supabase/supabase-js": "^2.118.0",
-    "@tanstack/react-query": "^5.104.3",
+    "@tanstack/react-query": "^5.104.5",
     "date-fns": "^4.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-hook-form": "^7.90.0",
-    "react-router": "^8.4.0",
+    "react-router": "^8.5.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -39,7 +39,7 @@
     "pg": "^8.23.1",
     "@types/pg": "^8.23.1",
     "typescript": "~5.9.3",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5"
   }
 }
