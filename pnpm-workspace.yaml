@@ -22,3 +22,8 @@ peerDependencyRules:
   allowedVersions:
     nestjs-zod>@nestjs/common: '12'
     nestjs-zod>@nestjs/swagger: '12'
+
+# @nestjs/platform-express 12.2.0 still pins multer 2.4.0 (GHSA-q7qp-rjg7-q26m, fixed in 2.5.0).
+# Remove once a platform-express release depends on multer >=2.5.0.
+overrides:
+  '@nestjs/platform-express>multer': ^2.5.0
